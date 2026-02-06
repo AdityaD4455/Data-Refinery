@@ -1,80 +1,9 @@
-🚀 Data-Refinery
-A Streamlit-powered application for automated data cleaning, preprocessing, EDA, and visualization.
-⭐ Overview
-
-Data-Refinery is a lightweight yet powerful data-cleaning web application built using Streamlit.
-It enables users to upload datasets, clean them using multiple preprocessing techniques, explore data visually, and download the refined output — all through an intuitive interface.
-
-🔧 Core Features
-🧹 Data Cleaning
-
-Drop selected columns
-Handle missing values (drop / fill)
-Convert data types
-Remove duplicates (full or column-based)
-Z-score based outlier detection
-Replace categorical values with user-defined numeric mapping
-Label Encoding & One-Hot Encoding
-Column substring modification with new column creation
-
-📊 Exploratory Data Analysis (EDA)
-Dataset shape
-Missing value summary
-Basic statistics
-Correlation matrix
-Data-type overview
-
-📈 Visualizations
-Interactive charts:
-Histogram
-Scatter Plot
-Bar Chart
-Line Plot
-Box Plot
-
-Users can choose axes and chart types dynamically.
-
-💾 Output
-Download cleaned dataset as a CSV
-Real-time preview before export
-
-🛠 Tech Stack
-Python 3.x
-Pandas, NumPy
-Scikit-learn
-SciPy
-Streamlit
-Plotly / Matplotlib
-
-
-📂 Project Structure
-Data-Refinery
-│── data_cleaning.py
-│── requirements.txt
-│── README.md
-
-
-▶️ Run Locally
-1. Install dependencies:
-pip install -r requirements.txt
-
-2. Start the app:
-streamlit run data_cleaning.py
-
-3. Access in browser:
-
-http://localhost:8501
-
-🌐 Deploying
-
-You can deploy on Streamlit Cloud, Render, or HuggingFace Spaces:
-
-Push project to GitHub
-
-Select platform → Import repo
-
-Choose data_cleaning.py as entry file
-
-Deploy
-
-You will get a public URL for sharing.
+🚀 Data-RefineryData-Refinery is a lightweight yet powerful web application built with Streamlit for automated data cleaning, preprocessing, and exploratory data analysis (EDA). It bridges the gap between raw data and actionable insights by providing a no-code interface for complex data manipulations.⭐ OverviewData cleaning accounts for 80% of a data scientist's time. Data-Refinery streamlines this process. Users can upload raw datasets (CSV/Excel), apply advanced cleaning techniques (like Z-score outlier detection and encoding), visualize distributions, and download the refined output instantly.🔧 Key Features🧹 Advanced Data CleaningSmart Handling: Drop specific columns or handle missing values (Drop rows/Fill with Mean, Median, Mode).Outlier Detection: Automatically detect and filter outliers using Z-Score analysis.Duplicate Management: Remove duplicates based on all columns or specific subsets.String Manipulation: Modify column substrings and generate new feature columns dynamically.⚙️ Preprocessing & EncodingType Conversion: Instantly convert column data types (e.g., String to Float).Categorical Encoding:Label Encoding: For ordinal data.One-Hot Encoding: For nominal data.Mapping: Replace categorical values with user-defined numeric maps.📊 Exploratory Data Analysis (EDA)Health Check: View dataset shape, data types, and missing value summaries.Statistics: Generate descriptive statistics (mean, std, min, max, quartiles).Correlation: Interactive heatmap to visualize relationships between variables.📈 Interactive VisualizationDynamic plotting using Plotly and Matplotlib:📊 Distribution: Histograms and Box Plots.📉 Relationships: Scatter Plots and Line Charts.📊 Comparison: Bar Charts.Users can dynamically select X and Y axes for all charts.🛠 Tech StackCategoryTechnologiesFrameworkStreamlitLanguagePython 3.xData ManipulationPandas, NumPyMachine LearningScikit-learn, SciPyVisualizationPlotly, Matplotlib📂 Project StructurePlaintextData-Refinery/
+│
+├── data_cleaning.py       # Main application entry point
+├── requirements.txt       # List of python dependencies
+└── README.md              # Project documentation
+▶️ Getting Started1. Clone the RepositoryBashgit clone https://github.com/yourusername/data-refinery.git
+cd data-refinery
+2. Install DependenciesEnsure you have Python installed, then run:Bashpip install -r requirements.txt
+3. Run the ApplicationBashstreamlit run data_cleaning.py
