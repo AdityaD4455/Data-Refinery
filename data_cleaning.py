@@ -23,7 +23,6 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime
 import warnings
-import seaborn as sns
 
 warnings.filterwarnings('ignore')
 
@@ -332,12 +331,19 @@ def download_button(df, format_type, label, key):
         st.download_button(label, csv, f"data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv", 
                           "text/csv", key=key, use_container_width=True)
     elif format_type == "excel":
-        buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='Data')
-        st.download_button(label, buffer.getvalue(), 
-                          f"data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                          "application/vnd.ms-excel", key=key, use_container_width=True)
+        try:
+            buffer = io.BytesIO()
+            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False, sheet_name='Data')
+            st.download_button(label, buffer.getvalue(), 
+                              f"data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                              "application/vnd.ms-excel", key=key, use_container_width=True)
+        except ImportError:
+            st.error("⚠️ Excel export requires 'openpyxl'. Install it with: pip install openpyxl")
+            # Fallback to CSV
+            csv = df.to_csv(index=False)
+            st.download_button(label + " (CSV)", csv, f"data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv", 
+                              "text/csv", key=key+"_csv", use_container_width=True)
     elif format_type == "json":
         json_str = df.to_json(orient='records', indent=2)
         st.download_button(label, json_str, f"data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
@@ -708,27 +714,34 @@ with tabs[1]:
             if st.button("🔄 Transform", key="transform_btn"):
                 df_transform = df.copy()
                 
-                if transform_type == "Standard Scaler":
-                    scaler = StandardScaler()
-                    df_transform[transform_col] = scaler.fit_transform(df_transform[[transform_col]])
-                elif transform_type == "Min-Max Scaler":
-                    scaler = MinMaxScaler()
-                    df_transform[transform_col] = scaler.fit_transform(df_transform[[transform_col]])
-                elif transform_type == "Robust Scaler":
-                    scaler = RobustScaler()
-                    df_transform[transform_col] = scaler.fit_transform(df_transform[[transform_col]])
-                elif transform_type == "Log Transform":
-                    df_transform[transform_col] = np.log1p(df_transform[transform_col])
-                elif transform_type == "Square Root":
-                    df_transform[transform_col] = np.sqrt(df_transform[transform_col])
-                else:
-                    from scipy import stats
-                    df_transform[transform_col], _ = stats.boxcox(df_transform[transform_col] + 1)
-                
-                push_history(df, f"🔄 {transform_type} - {transform_col}")
-                st.session_state.df = df_transform
-                st.success(f"✅ Applied {transform_type}!")
-                st.rerun()
+                try:
+                    if transform_type == "Standard Scaler":
+                        scaler = StandardScaler()
+                        df_transform[transform_col] = scaler.fit_transform(df_transform[[transform_col]])
+                    elif transform_type == "Min-Max Scaler":
+                        scaler = MinMaxScaler()
+                        df_transform[transform_col] = scaler.fit_transform(df_transform[[transform_col]])
+                    elif transform_type == "Robust Scaler":
+                        scaler = RobustScaler()
+                        df_transform[transform_col] = scaler.fit_transform(df_transform[[transform_col]])
+                    elif transform_type == "Log Transform":
+                        df_transform[transform_col] = np.log1p(df_transform[transform_col])
+                    elif transform_type == "Square Root":
+                        df_transform[transform_col] = np.sqrt(df_transform[transform_col])
+                    else:
+                        try:
+                            from scipy import stats
+                            df_transform[transform_col], _ = stats.boxcox(df_transform[transform_col] + 1)
+                        except ImportError:
+                            st.error("⚠️ Box-Cox requires 'scipy'. Install it with: pip install scipy")
+                            st.stop()
+                    
+                    push_history(df, f"🔄 {transform_type} - {transform_col}")
+                    st.session_state.df = df_transform
+                    st.success(f"✅ Applied {transform_type}!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
     
     # Encode Categorical
     with st.expander("🏷️ Encode Categorical Variables", expanded=False):
