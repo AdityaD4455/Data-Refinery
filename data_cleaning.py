@@ -1563,7 +1563,7 @@ with tabs[3]:
             "Ridge": Ridge(alpha=1.0),
             "Lasso": Lasso(alpha=1.0),
             "ElasticNet": ElasticNet(alpha=1.0),
-            "Neural Network": MLPRegressor(hidden_layers_sizes=(100, 50), max_iter=500, random_state=42),
+            "Neural Network": MLPRegressor(hidden_layer_sizes=(100, 50), max_iter=500, random_state=42),
             "SVR": SVR(kernel='rbf')
         }
     
@@ -2571,5 +2571,6 @@ st.markdown("""
     </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
