@@ -1547,7 +1547,7 @@ with tabs[3]:
             "Gradient Boosting": GradientBoostingClassifier(n_estimators=200, random_state=42),
             "Extra Trees": ExtraTreesClassifier(n_estimators=200, random_state=42, n_jobs=-1),
             "Logistic Regression": LogisticRegression(max_iter=2000, random_state=42, n_jobs=-1),
-            "Neural Network": MLPClassifier(hidden_layers=(100, 50), max_iter=500, random_state=42),
+            "Neural Network": MLPClassifier(hidden_layers_sizes=(100, 50), max_iter=500, random_state=42),
             "KNN": KNeighborsClassifier(n_neighbors=5, n_jobs=-1),
             "SVM": SVC(kernel='rbf', probability=True, random_state=42),
             "Naive Bayes": GaussianNB()
@@ -2571,3 +2571,4 @@ st.markdown("""
     </div>
 </div>
 """, unsafe_allow_html=True)
+
