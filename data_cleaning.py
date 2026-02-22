@@ -1326,89 +1326,165 @@ with tabs[3]:
             # ── Beautiful HTML Comparison Table ──
             st.markdown("### 📊 Detailed Metrics Comparison Table")
 
-            def score_color(val, col_name, is_best_row):
-                """Return background color based on value quality"""
-                if val is None or val == 'N/A':
-                    return '#2a2a3a'
-                try:
-                    v = float(str(val).split('±')[0].strip())
-                except:
-                    return '#2a2a3a'
-                # For error metrics (lower is better)
-                lower_is_better = col_name in ['RMSE', 'MAE', 'MAPE']
-                if lower_is_better:
-                    if v < 0.05: bg = 'rgba(67,233,123,0.25)'
-                    elif v < 0.15: bg = 'rgba(56,249,215,0.15)'
-                    elif v < 0.30: bg = 'rgba(249,171,0,0.15)'
-                    else: bg = 'rgba(255,71,87,0.15)'
-                else:
-                    if v >= 0.90: bg = 'rgba(67,233,123,0.25)'
-                    elif v >= 0.80: bg = 'rgba(56,249,215,0.15)'
-                    elif v >= 0.65: bg = 'rgba(249,171,0,0.15)'
-                    else: bg = 'rgba(255,71,87,0.15)'
-                return bg
+            if ptype == 'classification':
+                headers    = ['#', 'Model', 'Accuracy', 'Precision', 'Recall', 'F1-Score', 'AUC-ROC', 'CV Score (5-fold)']
+                data_keys  = ['Accuracy', 'Precision', 'Recall', 'F1', 'AUC', 'CV Score']
+                higher_better = {'Accuracy', 'Precision', 'Recall', 'F1', 'AUC'}
+            else:
+                headers    = ['#', 'Model', 'R²', 'RMSE', 'MAE', 'MAPE', 'CV Score (5-fold)']
+                data_keys  = ['R²', 'RMSE', 'MAE', 'MAPE', 'CV Score']
+                higher_better = {'R²'}
 
-            def format_val(val, col_name):
-                if val is None or val == 'N/A' or (isinstance(val, float) and np.isnan(val)):
-                    return '<span style="color:#555">—</span>'
-                if col_name == 'CV Score' and val:
-                    return f'<span style="font-family:JetBrains Mono,monospace;font-size:12px">{val}</span>'
+            # ── Pre-compute per-column min/max for RELATIVE bar widths ──
+            col_stats = {}
+            for k in data_keys:
+                if k == 'CV Score': continue
+                vals = []
+                for _, row in rdf.iterrows():
+                    v = row.get(k, None)
+                    if v is not None and v != 'N/A':
+                        try: vals.append(float(v))
+                        except: pass
+                if vals:
+                    col_stats[k] = {'min': min(vals), 'max': max(vals)}
+
+            def relative_bar(val, col_name):
+                """Return 0-100 bar width using min-max across all models in this column."""
                 try:
                     v = float(val)
-                    pct = v * 100
-                    bar_w = min(100, max(0, pct if col_name not in ['RMSE','MAE','MAPE'] else max(0, 100 - pct*100)))
-                    bar_color = '#43E97B' if pct >= 80 else '#38F9D7' if pct >= 65 else '#F9AB00' if pct >= 50 else '#FF4757'
-                    return f'''
-                        <div style="display:flex;align-items:center;gap:8px;">
-                            <span style="font-weight:700;font-size:13px;min-width:52px">{v:.4f}</span>
-                            <div style="flex:1;background:rgba(255,255,255,0.06);border-radius:4px;height:6px;min-width:60px">
-                                <div style="width:{bar_w}%;background:{bar_color};height:6px;border-radius:4px;transition:width 0.5s"></div>
-                            </div>
-                        </div>'''
+                    cs = col_stats.get(col_name, None)
+                    if cs is None or cs['max'] == cs['min']:
+                        return 50  # all equal → show half bar
+                    is_hb = col_name in higher_better
+                    norm = (v - cs['min']) / (cs['max'] - cs['min'])  # 0=worst, 1=best raw
+                    pct = norm if is_hb else (1 - norm)               # flip for error metrics
+                    return max(4, min(100, int(pct * 100)))
                 except:
-                    return str(val)
+                    return 0
 
-            if ptype == 'classification':
-                headers = ['#', 'Model', 'Accuracy', 'Precision', 'Recall', 'F1-Score', 'AUC-ROC', 'CV Score (5-fold)']
-                data_keys = ['Accuracy', 'Precision', 'Recall', 'F1', 'AUC', 'CV Score']
-            else:
-                headers = ['#', 'Model', 'R²', 'RMSE', 'MAE', 'MAPE', 'CV Score (5-fold)']
-                data_keys = ['R²', 'RMSE', 'MAE', 'MAPE', 'CV Score']
+            def cell_color(val, col_name):
+                """Background color: quality-based for higher-better, relative for error metrics."""
+                try:
+                    v = float(val)
+                except:
+                    return 'transparent'
+                if col_name in higher_better:
+                    # Absolute quality bands
+                    if v >= 0.90: return 'rgba(67,233,123,0.18)'
+                    elif v >= 0.80: return 'rgba(56,249,215,0.12)'
+                    elif v >= 0.65: return 'rgba(249,171,0,0.12)'
+                    else: return 'rgba(255,71,87,0.12)'
+                else:
+                    # Relative: best model gets green, worst gets red
+                    cs = col_stats.get(col_name)
+                    if cs is None or cs['max'] == cs['min']:
+                        return 'rgba(249,171,0,0.10)'
+                    norm = (v - cs['min']) / (cs['max'] - cs['min'])  # 0=best(lowest err), 1=worst
+                    if norm <= 0.20: return 'rgba(67,233,123,0.18)'
+                    elif norm <= 0.50: return 'rgba(56,249,215,0.12)'
+                    elif norm <= 0.80: return 'rgba(249,171,0,0.12)'
+                    else: return 'rgba(255,71,87,0.12)'
+
+            def bar_color_for(val, col_name):
+                try:
+                    v = float(val)
+                except:
+                    return '#6C63FF'
+                if col_name in higher_better:
+                    if v >= 0.90: return '#43E97B'
+                    elif v >= 0.80: return '#38F9D7'
+                    elif v >= 0.65: return '#F9AB00'
+                    else: return '#FF4757'
+                else:
+                    cs = col_stats.get(col_name)
+                    if cs is None or cs['max'] == cs['min']:
+                        return '#F9AB00'
+                    norm = (v - cs['min']) / (cs['max'] - cs['min'])
+                    if norm <= 0.20: return '#43E97B'
+                    elif norm <= 0.50: return '#38F9D7'
+                    elif norm <= 0.80: return '#F9AB00'
+                    else: return '#FF4757'
+
+            def format_val(val, col_name):
+                """Render a metric cell with value + relative progress bar."""
+                if val is None or val == 'N/A' or (isinstance(val, float) and np.isnan(val)):
+                    return '<span style="color:#555;font-size:13px">—</span>'
+                if col_name == 'CV Score':
+                    # Parse "mean ± std" string
+                    try:
+                        parts = str(val).split('±')
+                        mean_v = float(parts[0].strip())
+                        std_v  = float(parts[1].strip()) if len(parts) > 1 else None
+                        m_color = '#43E97B' if mean_v >= 0.80 else '#F9AB00' if mean_v >= 0.60 else '#FF4757'
+                        std_html = f' <span style="color:#666;font-size:11px">± {std_v:.4f}</span>' if std_v is not None else ''
+                        return f'<span style="font-family:JetBrains Mono,monospace;font-size:13px;font-weight:700;color:{m_color}">{mean_v:.4f}</span>{std_html}'
+                    except:
+                        return f'<span style="font-family:JetBrains Mono,monospace;font-size:12px;color:#aaa">{val}</span>'
+                try:
+                    v = float(val)
+                    bar_w  = relative_bar(val, col_name)
+                    b_col  = bar_color_for(val, col_name)
+                    # Smart number formatting
+                    if abs(v) >= 100:
+                        disp = f'{v:.2f}'
+                    elif abs(v) >= 1:
+                        disp = f'{v:.4f}'
+                    else:
+                        disp = f'{v:.4f}'
+                    # Add qualitative label for regression error metrics
+                    tag = ''
+                    if col_name not in higher_better and col_name != 'CV Score':
+                        cs = col_stats.get(col_name)
+                        if cs and cs['max'] != cs['min']:
+                            norm = (v - cs['min']) / (cs['max'] - cs['min'])
+                            lbl = 'Best' if norm <= 0.20 else 'Good' if norm <= 0.50 else 'Fair' if norm <= 0.80 else 'Worst'
+                            lbl_c = '#43E97B' if lbl=='Best' else '#38F9D7' if lbl=='Good' else '#F9AB00' if lbl=='Fair' else '#FF4757'
+                            tag = f'<span style="font-size:9px;font-weight:700;color:{lbl_c};background:rgba(255,255,255,0.06);padding:1px 5px;border-radius:4px;margin-left:4px">{lbl}</span>'
+                    return f'''<div style="display:flex;flex-direction:column;gap:5px">
+                        <div style="display:flex;align-items:center;gap:6px">
+                            <span style="font-weight:700;font-size:13px;color:#E8E9F0;min-width:58px;letter-spacing:-0.3px">{disp}</span>{tag}
+                        </div>
+                        <div style="background:rgba(255,255,255,0.07);border-radius:3px;height:5px;width:100%;min-width:80px">
+                            <div style="width:{bar_w}%;background:{b_col};height:5px;border-radius:3px"></div>
+                        </div>
+                    </div>'''
+                except:
+                    return f'<span style="color:#aaa">{val}</span>'
 
             medals = ['🥇', '🥈', '🥉']
             rows_html = ''
             for i, row in rdf.iterrows():
                 is_best = (i == 0)
-                medal = medals[i] if i < 3 else f'<span style="color:#555;font-size:11px">#{i+1}</span>'
-                row_bg = 'rgba(67,233,123,0.07)' if is_best else ('rgba(255,255,255,0.03)' if i % 2 == 0 else 'rgba(0,0,0,0)')
-                border = 'border-left: 3px solid #43E97B;' if is_best else 'border-left: 3px solid transparent;'
-                model_cell = f'''
-                    <td style="padding:14px 16px;white-space:nowrap;">
+                medal   = medals[i] if i < 3 else f'<span style="color:#666;font-size:12px">#{i+1}</span>'
+                row_bg  = 'rgba(67,233,123,0.05)' if is_best else ('rgba(255,255,255,0.025)' if i % 2 == 0 else 'rgba(0,0,0,0)')
+                border  = 'border-left:3px solid #43E97B;' if is_best else 'border-left:3px solid transparent;'
+                model_cell = f'''<td style="padding:14px 18px;white-space:nowrap;min-width:160px">
                         <div style="font-weight:700;font-size:14px;color:#E8E9F0">{row["Model"]}</div>
-                        {"<div style='margin-top:3px'><span style='background:rgba(67,233,123,0.2);color:#43E97B;font-size:10px;padding:2px 8px;border-radius:20px;font-weight:700;letter-spacing:0.5px'>BEST MODEL</span></div>" if is_best else ""}
+                        {"<div style='margin-top:4px'><span style='background:rgba(67,233,123,0.18);color:#43E97B;font-size:10px;padding:2px 8px;border-radius:20px;font-weight:700;letter-spacing:0.5px'>★ BEST MODEL</span></div>" if is_best else ""}
                     </td>'''
-                cells = f'<td style="padding:14px 16px;text-align:center;font-size:13px;color:#a8a4ff">{medal}</td>' + model_cell
+                cells = f'<td style="padding:14px 16px;text-align:center;font-size:18px">{medal}</td>' + model_cell
                 for k in data_keys:
                     val = row.get(k, None)
-                    bg = score_color(val, k, is_best)
-                    cells += f'<td style="padding:14px 20px;background:{bg};border-radius:0">{format_val(val, k)}</td>'
-                rows_html += f'<tr style="background:{row_bg};{border};transition:background 0.2s">{cells}</tr>'
+                    bg  = cell_color(val, k) if (val is not None and val != 'N/A') else 'transparent'
+                    cells += f'<td style="padding:12px 18px;background:{bg};min-width:120px;vertical-align:middle">{format_val(val, k)}</td>'
+                rows_html += f'<tr style="background:{row_bg};{border}">{cells}</tr>'
 
             header_cells = ''.join(
-                f'<th style="padding:14px 16px;text-align:{"center" if h == "#" else "left"};font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#6C63FF;white-space:nowrap;border-bottom:2px solid rgba(108,99,255,0.3)">{h}</th>'
+                f'<th style="padding:14px {"16px" if h=="#" else "18px"};text-align:{"center" if h=="#" else "left"};font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#6C63FF;white-space:nowrap;border-bottom:2px solid rgba(108,99,255,0.3)">{h}</th>'
                 for h in headers
             )
 
             legend_items = '''
-                <div style="display:inline-flex;gap:5px;align-items:center"><div style="width:12px;height:12px;background:rgba(67,233,123,0.25);border-radius:3px"></div><span>≥ 90% Excellent</span></div>
-                <div style="display:inline-flex;gap:5px;align-items:center"><div style="width:12px;height:12px;background:rgba(56,249,215,0.15);border-radius:3px"></div><span>≥ 80% Good</span></div>
-                <div style="display:inline-flex;gap:5px;align-items:center"><div style="width:12px;height:12px;background:rgba(249,171,0,0.15);border-radius:3px"></div><span>≥ 65% Fair</span></div>
-                <div style="display:inline-flex;gap:5px;align-items:center"><div style="width:12px;height:12px;background:rgba(255,71,87,0.15);border-radius:3px"></div><span>< 65% Poor</span></div>
+                <div style="display:inline-flex;gap:5px;align-items:center"><div style="width:10px;height:10px;background:#43E97B;border-radius:2px;opacity:0.8"></div><span>≥ 90%</span></div>
+                <div style="display:inline-flex;gap:5px;align-items:center"><div style="width:10px;height:10px;background:#38F9D7;border-radius:2px;opacity:0.8"></div><span>≥ 80%</span></div>
+                <div style="display:inline-flex;gap:5px;align-items:center"><div style="width:10px;height:10px;background:#F9AB00;border-radius:2px;opacity:0.8"></div><span>≥ 65%</span></div>
+                <div style="display:inline-flex;gap:5px;align-items:center"><div style="width:10px;height:10px;background:#FF4757;border-radius:2px;opacity:0.8"></div><span>< 65%</span></div>
             ''' if ptype == 'classification' else '''
-                <div style="display:inline-flex;gap:5px;align-items:center"><div style="width:12px;height:12px;background:rgba(67,233,123,0.25);border-radius:3px"></div><span>R² ≥ 0.90</span></div>
-                <div style="display:inline-flex;gap:5px;align-items:center"><div style="width:12px;height:12px;background:rgba(56,249,215,0.15);border-radius:3px"></div><span>R² ≥ 0.80</span></div>
-                <div style="display:inline-flex;gap:5px;align-items:center"><div style="width:12px;height:12px;background:rgba(249,171,0,0.15);border-radius:3px"></div><span>R² ≥ 0.65</span></div>
-                <div style="display:inline-flex;gap:5px;align-items:center"><div style="width:12px;height:12px;background:rgba(255,71,87,0.15);border-radius:3px"></div><span>R² < 0.65</span></div>
+                <div style="display:inline-flex;gap:5px;align-items:center"><div style="width:10px;height:10px;background:#43E97B;border-radius:2px;opacity:0.8"></div><span>Best</span></div>
+                <div style="display:inline-flex;gap:5px;align-items:center"><div style="width:10px;height:10px;background:#38F9D7;border-radius:2px;opacity:0.8"></div><span>Good</span></div>
+                <div style="display:inline-flex;gap:5px;align-items:center"><div style="width:10px;height:10px;background:#F9AB00;border-radius:2px;opacity:0.8"></div><span>Fair</span></div>
+                <div style="display:inline-flex;gap:5px;align-items:center"><div style="width:10px;height:10px;background:#FF4757;border-radius:2px;opacity:0.8"></div><span>Worst</span></div>
+                <div style="display:inline-flex;gap:5px;align-items:center;opacity:0.6"><span style="font-size:10px;font-style:italic">Bars = relative rank among models</span></div>
             '''
 
             st.markdown(f"""
@@ -1944,37 +2020,81 @@ with tabs[7]:
                 fig.update_layout(**plotly_dark_layout(height=420, coloraxis_showscale=False))
                 st.plotly_chart(fig, use_container_width=True)
 
-                # Rich AutoML Comparison Table
+                # Rich AutoML Comparison Table — relative min-max normalization
                 rdf2 = rdf.reset_index(drop=True)
                 medals2 = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣']
+
+                # Pre-compute min/max of Score column for relative bars
+                all_scores = rdf2['Score'].astype(float).tolist()
+                sc_min, sc_max = min(all_scores), max(all_scores)
+                sc_range = sc_max - sc_min if sc_max != sc_min else 1.0
+
+                # CV scores min/max
+                cv_vals_aml = [float(r['CV Score']) for _, r in rdf2.iterrows()
+                               if r.get('CV Score') is not None]
+                cv_min_aml = min(cv_vals_aml) if cv_vals_aml else 0
+                cv_max_aml = max(cv_vals_aml) if cv_vals_aml else 1
+                cv_range_aml = cv_max_aml - cv_min_aml if cv_max_aml != cv_min_aml else 1.0
+
                 rows2_html = ''
                 for i, row in rdf2.iterrows():
                     is_best2 = (i == 0)
-                    medal2 = medals2[i] if i < len(medals2) else f'#{i+1}'
-                    row_bg2 = 'rgba(67,233,123,0.07)' if is_best2 else ('rgba(255,255,255,0.03)' if i % 2 == 0 else 'rgba(0,0,0,0)')
-                    border2 = 'border-left:3px solid #43E97B;' if is_best2 else 'border-left:3px solid transparent;'
-                    sc = float(row['Score'])
-                    bar_c = '#43E97B' if sc >= 0.9 else '#38F9D7' if sc >= 0.8 else '#F9AB00' if sc >= 0.65 else '#FF4757'
-                    bg_c = 'rgba(67,233,123,0.2)' if sc >= 0.9 else 'rgba(56,249,215,0.12)' if sc >= 0.8 else 'rgba(249,171,0,0.12)' if sc >= 0.65 else 'rgba(255,71,87,0.12)'
+                    medal2   = medals2[i] if i < len(medals2) else f'<span style="color:#666">#{i+1}</span>'
+                    row_bg2  = 'rgba(67,233,123,0.05)' if is_best2 else ('rgba(255,255,255,0.025)' if i % 2 == 0 else 'rgba(0,0,0,0)')
+                    border2  = 'border-left:3px solid #43E97B;' if is_best2 else 'border-left:3px solid transparent;'
+                    sc       = float(row['Score'])
+
+                    # Relative bar: best model = 100%, worst = 4%
+                    bar_w2   = max(4, int(((sc - sc_min) / sc_range) * 100))
+
+                    # Color based on relative rank position
+                    rank_pct = (sc - sc_min) / sc_range  # 0=worst, 1=best
+                    if rank_pct >= 0.75:   bar_c2 = '#43E97B'; bg_c2 = 'rgba(67,233,123,0.12)'
+                    elif rank_pct >= 0.50: bar_c2 = '#38F9D7'; bg_c2 = 'rgba(56,249,215,0.10)'
+                    elif rank_pct >= 0.25: bar_c2 = '#F9AB00'; bg_c2 = 'rgba(249,171,0,0.10)'
+                    else:                  bar_c2 = '#FF4757'; bg_c2 = 'rgba(255,71,87,0.10)'
+
+                    # Score display — smart format
+                    sc_disp = f'{sc:.4f}'
+                    # Quality label
+                    qlabel   = 'Best' if is_best2 else ('Good' if rank_pct >= 0.50 else ('Fair' if rank_pct >= 0.25 else 'Weak'))
+                    qlabel_c = bar_c2
+
+                    # CV Score cell
                     cv_val = row.get('CV Score', None)
-                    cv_html = f'<span style="font-size:13px;font-weight:700;color:#43E97B">{cv_val:.4f}</span>' if cv_val else '<span style="color:#555">—</span>'
+                    if cv_val is not None:
+                        cv_f = float(cv_val)
+                        cv_bar_w = max(4, int(((cv_f - cv_min_aml) / cv_range_aml) * 100))
+                        cv_c = '#43E97B' if cv_f >= 0.80 else '#38F9D7' if cv_f >= 0.65 else '#F9AB00' if cv_f >= 0.50 else '#FF4757'
+                        cv_html = f'''<div style="display:flex;flex-direction:column;gap:4px;align-items:center">
+                            <span style="font-size:14px;font-weight:700;color:{cv_c}">{cv_f:.4f}</span>
+                            <div style="background:rgba(255,255,255,0.07);border-radius:3px;height:4px;width:80px">
+                                <div style="width:{cv_bar_w}%;background:{cv_c};height:4px;border-radius:3px"></div>
+                            </div>
+                        </div>'''
+                    else:
+                        cv_html = '<span style="color:#444;font-size:13px">—</span>'
+
                     rows2_html += f'''
                     <tr style="background:{row_bg2};{border2}">
                         <td style="padding:16px;text-align:center;font-size:20px">{medal2}</td>
-                        <td style="padding:16px 20px">
+                        <td style="padding:14px 20px;min-width:180px">
                             <div style="font-weight:700;font-size:15px;color:#E8E9F0">{row["Model"]}</div>
-                            {"<span style='background:rgba(67,233,123,0.2);color:#43E97B;font-size:10px;padding:2px 8px;border-radius:20px;font-weight:700'>★ BEST</span>" if is_best2 else ""}
+                            {"<div style='margin-top:5px'><span style='background:rgba(67,233,123,0.18);color:#43E97B;font-size:10px;padding:2px 9px;border-radius:20px;font-weight:700;letter-spacing:0.5px'>★ BEST MODEL</span></div>" if is_best2 else ""}
                         </td>
-                        <td style="padding:16px 20px;background:{bg_c}">
-                            <div style="display:flex;align-items:center;gap:10px">
-                                <span style="font-size:22px;font-weight:900;color:#E8E9F0">{sc:.4f}</span>
-                                <div style="flex:1;background:rgba(255,255,255,0.08);border-radius:6px;height:10px">
-                                    <div style="width:{sc*100:.1f}%;background:{bar_c};height:10px;border-radius:6px"></div>
+                        <td style="padding:14px 20px;background:{bg_c2};min-width:240px">
+                            <div style="display:flex;flex-direction:column;gap:6px">
+                                <div style="display:flex;align-items:center;justify-content:space-between">
+                                    <span style="font-size:20px;font-weight:900;color:#E8E9F0;letter-spacing:-0.5px">{sc_disp}</span>
+                                    <span style="font-size:10px;font-weight:700;color:{qlabel_c};background:rgba(255,255,255,0.07);padding:2px 7px;border-radius:4px">{qlabel}</span>
                                 </div>
-                                <span style="font-size:12px;color:{bar_c};font-weight:700">{sc*100:.1f}%</span>
+                                <div style="background:rgba(255,255,255,0.08);border-radius:5px;height:8px;width:100%">
+                                    <div style="width:{bar_w2}%;background:{bar_c2};height:8px;border-radius:5px"></div>
+                                </div>
+                                <div style="font-size:10px;color:rgba(232,233,240,0.4)">Rank {i+1} of {len(rdf2)} · bar = relative performance</div>
                             </div>
                         </td>
-                        <td style="padding:16px 20px;text-align:center">{cv_html}</td>
+                        <td style="padding:14px 20px;text-align:center;vertical-align:middle">{cv_html}</td>
                     </tr>'''
 
                 st.markdown(f"""
@@ -1994,8 +2114,12 @@ with tabs[7]:
                         </thead>
                         <tbody>{rows2_html}</tbody>
                     </table>
-                    <div style="background:rgba(0,0,0,0.2);padding:12px 20px;border-top:1px solid rgba(255,255,255,0.04);font-size:11px;color:rgba(232,233,240,0.4)">
-                        💡 Bar width = % score · Green ≥ 90% · Teal ≥ 80% · Orange ≥ 65% · Red &lt; 65%
+                    <div style="background:rgba(0,0,0,0.2);padding:14px 20px;border-top:1px solid rgba(255,255,255,0.04);display:flex;gap:24px;flex-wrap:wrap;align-items:center">
+                        <span style="font-size:11px;color:rgba(232,233,240,0.45)">💡 Bars show <b style="color:rgba(232,233,240,0.7)">relative performance</b> — best model always gets full bar regardless of absolute score</span>
+                        <span style="font-size:11px;color:rgba(232,233,240,0.45)">Score range: <b style="color:rgba(232,233,240,0.7)">{sc_min:.4f}</b> → <b style="color:#43E97B">{sc_max:.4f}</b></span>
+                        <div style="display:flex;gap:10px;font-size:11px;color:rgba(232,233,240,0.5)">
+                            <span>🟢 Best</span><span>🩵 Good</span><span>🟡 Fair</span><span>🔴 Weak</span>
+                        </div>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
