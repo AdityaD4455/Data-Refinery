@@ -1335,8 +1335,12 @@ with tabs[3]:
                 data_keys  = ['R²', 'RMSE', 'MAE', 'MAPE', 'CV Score']
                 higher_better = {'R²'}
 
-            # ── Pre-compute per-column min/max for RELATIVE bar widths ──
-            col_stats = {}
+            # ── Pre-compute per-column stats: sorted ranks, min, max ──
+            # col_rank[col][val_str] = rank_index (0 = best)
+            col_stats  = {}   # {col: {min, max, sorted_vals (best first)}}
+            col_best   = {}   # {col: best_val}  (highest for HB, lowest for LB)
+            col_worst  = {}   # {col: worst_val}
+
             for k in data_keys:
                 if k == 'CV Score': continue
                 vals = []
@@ -1345,147 +1349,151 @@ with tabs[3]:
                     if v is not None and v != 'N/A':
                         try: vals.append(float(v))
                         except: pass
-                if vals:
-                    col_stats[k] = {'min': min(vals), 'max': max(vals)}
+                if not vals: continue
+                is_hb = k in higher_better
+                sorted_vals = sorted(vals, reverse=is_hb)   # best first
+                col_stats[k] = {
+                    'min': min(vals), 'max': max(vals),
+                    'sorted': sorted_vals,
+                    'n': len(sorted_vals)
+                }
+                col_best[k]  = sorted_vals[0]
+                col_worst[k] = sorted_vals[-1]
 
-            def relative_bar(val, col_name):
-                """Return 0-100 bar width using min-max across all models in this column."""
-                try:
-                    v = float(val)
-                    cs = col_stats.get(col_name, None)
-                    if cs is None or cs['max'] == cs['min']:
-                        return 50  # all equal → show half bar
-                    is_hb = col_name in higher_better
-                    norm = (v - cs['min']) / (cs['max'] - cs['min'])  # 0=worst, 1=best raw
-                    pct = norm if is_hb else (1 - norm)               # flip for error metrics
-                    return max(4, min(100, int(pct * 100)))
-                except:
-                    return 0
-
-            def cell_color(val, col_name):
-                """Background color: quality-based for higher-better, relative for error metrics."""
+            def get_rank_idx(val, col_name):
+                """Return 0-based rank index in sorted list (0=best). None if unavailable."""
+                cs = col_stats.get(col_name)
+                if cs is None: return None, 1
                 try:
                     v = float(val)
                 except:
-                    return 'transparent'
-                if col_name in higher_better:
-                    # Absolute quality bands
-                    if v >= 0.90: return 'rgba(67,233,123,0.18)'
-                    elif v >= 0.80: return 'rgba(56,249,215,0.12)'
-                    elif v >= 0.65: return 'rgba(249,171,0,0.12)'
-                    else: return 'rgba(255,71,87,0.12)'
-                else:
-                    # Relative: best model gets green, worst gets red
-                    cs = col_stats.get(col_name)
-                    if cs is None or cs['max'] == cs['min']:
-                        return 'rgba(249,171,0,0.10)'
-                    norm = (v - cs['min']) / (cs['max'] - cs['min'])  # 0=best(lowest err), 1=worst
-                    if norm <= 0.20: return 'rgba(67,233,123,0.18)'
-                    elif norm <= 0.50: return 'rgba(56,249,215,0.12)'
-                    elif norm <= 0.80: return 'rgba(249,171,0,0.12)'
-                    else: return 'rgba(255,71,87,0.12)'
-
-            def bar_color_for(val, col_name):
+                    return None, cs['n']
+                # Use index in the pre-sorted list (best-first)
                 try:
-                    v = float(val)
-                except:
-                    return '#6C63FF'
-                if col_name in higher_better:
-                    if v >= 0.90: return '#43E97B'
-                    elif v >= 0.80: return '#38F9D7'
-                    elif v >= 0.65: return '#F9AB00'
-                    else: return '#FF4757'
-                else:
-                    cs = col_stats.get(col_name)
-                    if cs is None or cs['max'] == cs['min']:
-                        return '#F9AB00'
-                    norm = (v - cs['min']) / (cs['max'] - cs['min'])
-                    if norm <= 0.20: return '#43E97B'
-                    elif norm <= 0.50: return '#38F9D7'
-                    elif norm <= 0.80: return '#F9AB00'
-                    else: return '#FF4757'
+                    idx = cs['sorted'].index(v)
+                except ValueError:
+                    # float not exact match — find closest
+                    idx = min(range(cs['n']), key=lambda i: abs(cs['sorted'][i] - v))
+                return idx, cs['n']
 
-            def format_val(val, col_name):
-                """Render a metric cell with value + relative progress bar."""
-                if val is None or val == 'N/A' or (isinstance(val, float) and np.isnan(val)):
-                    return '<span style="color:#555;font-size:13px">—</span>'
+            def get_rank_pct(val, col_name):
+                """0.0 = best, 1.0 = worst."""
+                idx, n = get_rank_idx(val, col_name)
+                if idx is None or n <= 1: return 0.0 if idx == 0 else None
+                return idx / (n - 1)
+
+            def bar_width(val, col_name):
+                rp = get_rank_pct(val, col_name)
+                if rp is None: return 50
+                return max(5, int((1.0 - rp) * 100))   # rank1=100%, last=5%
+
+            def rank_color(rank_pct):
+                """Color based on rank position: 0=best → green, 1=worst → red."""
+                if rank_pct is None: return '#6C63FF', 'rgba(108,99,255,0.10)'
+                if rank_pct == 0.0:               return '#43E97B', 'rgba(67,233,123,0.13)'
+                elif rank_pct < 0.5:              return '#38F9D7', 'rgba(56,249,215,0.09)'
+                elif rank_pct < 1.0:              return '#F9AB00', 'rgba(249,171,0,0.09)'
+                else:                             return '#FF4757', 'rgba(255,71,87,0.10)'
+
+            def rank_label(val, col_name):
+                """▲ Best label ONLY for rank-1, ▼ Worst ONLY for rank-last. Nothing else."""
+                idx, n = get_rank_idx(val, col_name)
+                if idx is None or n < 2: return '', ''
+                if idx == 0:     return '▲ Best',  '#43E97B'
+                if idx == n - 1: return '▼ Worst', '#FF4757'
+                return '', ''
+
+            def fmt_number(v):
+                if abs(v) >= 1000:  return f'{v:,.1f}'
+                elif abs(v) >= 100: return f'{v:.2f}'
+                elif abs(v) >= 1:   return f'{v:.4f}'
+                else:               return f'{v:.4f}'
+
+            def format_cell(val, col_name):
+                """Unified cell renderer — works for any value range."""
+                if val is None or (isinstance(val, float) and np.isnan(val)):
+                    return '<span style="color:#444;font-size:13px">—</span>'
+
+                # ── CV Score: special treatment ──
                 if col_name == 'CV Score':
-                    # Parse "mean ± std" string
                     try:
-                        parts = str(val).split('±')
+                        parts  = str(val).split('±')
                         mean_v = float(parts[0].strip())
                         std_v  = float(parts[1].strip()) if len(parts) > 1 else None
-                        m_color = '#43E97B' if mean_v >= 0.80 else '#F9AB00' if mean_v >= 0.60 else '#FF4757'
-                        std_html = f' <span style="color:#666;font-size:11px">± {std_v:.4f}</span>' if std_v is not None else ''
-                        return f'<span style="font-family:JetBrains Mono,monospace;font-size:13px;font-weight:700;color:{m_color}">{mean_v:.4f}</span>{std_html}'
+                        # Color based on absolute quality (CV mean is comparable across runs)
+                        if mean_v >= 0.85:   cv_c = '#43E97B'
+                        elif mean_v >= 0.70: cv_c = '#38F9D7'
+                        elif mean_v >= 0.50: cv_c = '#F9AB00'
+                        else:                cv_c = '#FF4757'
+                        std_str = f'<span style="color:#555;font-size:11px"> ± {std_v:.4f}</span>' if std_v is not None else ''
+                        return (f'<div style="font-family:JetBrains Mono,monospace">'
+                                f'<span style="font-size:14px;font-weight:700;color:{cv_c}">{mean_v:.4f}</span>'
+                                f'{std_str}</div>')
                     except:
-                        return f'<span style="font-family:JetBrains Mono,monospace;font-size:12px;color:#aaa">{val}</span>'
+                        return f'<span style="color:#aaa;font-size:12px">{val}</span>'
+
+                # ── Numeric metric cell ──
                 try:
-                    v = float(val)
-                    bar_w  = relative_bar(val, col_name)
-                    b_col  = bar_color_for(val, col_name)
-                    # Smart number formatting
-                    if abs(v) >= 100:
-                        disp = f'{v:.2f}'
-                    elif abs(v) >= 1:
-                        disp = f'{v:.4f}'
-                    else:
-                        disp = f'{v:.4f}'
-                    # Add qualitative label for regression error metrics
-                    tag = ''
-                    if col_name not in higher_better and col_name != 'CV Score':
-                        cs = col_stats.get(col_name)
-                        if cs and cs['max'] != cs['min']:
-                            norm = (v - cs['min']) / (cs['max'] - cs['min'])
-                            lbl = 'Best' if norm <= 0.20 else 'Good' if norm <= 0.50 else 'Fair' if norm <= 0.80 else 'Worst'
-                            lbl_c = '#43E97B' if lbl=='Best' else '#38F9D7' if lbl=='Good' else '#F9AB00' if lbl=='Fair' else '#FF4757'
-                            tag = f'<span style="font-size:9px;font-weight:700;color:{lbl_c};background:rgba(255,255,255,0.06);padding:1px 5px;border-radius:4px;margin-left:4px">{lbl}</span>'
-                    return f'''<div style="display:flex;flex-direction:column;gap:5px">
-                        <div style="display:flex;align-items:center;gap:6px">
-                            <span style="font-weight:700;font-size:13px;color:#E8E9F0;min-width:58px;letter-spacing:-0.3px">{disp}</span>{tag}
+                    v        = float(val)
+                    rp       = get_rank_pct(val, col_name)
+                    bw       = bar_width(val, col_name)
+                    b_col, cell_bg = rank_color(rp)
+                    lbl_text, lbl_c = rank_label(val, col_name)
+                    disp     = fmt_number(v)
+                    lbl_html = (f'<span style="font-size:9px;font-weight:800;color:{lbl_c};'
+                                f'background:rgba(255,255,255,0.07);padding:1px 6px;'
+                                f'border-radius:3px;letter-spacing:0.3px">{lbl_text}</span>'
+                                if lbl_text else '')
+                    return f'''<div style="display:flex;flex-direction:column;gap:6px">
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
+                            <span style="font-weight:700;font-size:13px;color:#E8E9F0;letter-spacing:-0.3px">{disp}</span>
+                            {lbl_html}
                         </div>
-                        <div style="background:rgba(255,255,255,0.07);border-radius:3px;height:5px;width:100%;min-width:80px">
-                            <div style="width:{bar_w}%;background:{b_col};height:5px;border-radius:3px"></div>
+                        <div style="background:rgba(255,255,255,0.06);border-radius:3px;height:5px">
+                            <div style="width:{bw}%;background:{b_col};height:5px;border-radius:3px"></div>
                         </div>
                     </div>'''
                 except:
                     return f'<span style="color:#aaa">{val}</span>'
 
-            medals = ['🥇', '🥈', '🥉']
+            medals   = ['🥇', '🥈', '🥉']
             rows_html = ''
             for i, row in rdf.iterrows():
-                is_best = (i == 0)
-                medal   = medals[i] if i < 3 else f'<span style="color:#666;font-size:12px">#{i+1}</span>'
-                row_bg  = 'rgba(67,233,123,0.05)' if is_best else ('rgba(255,255,255,0.025)' if i % 2 == 0 else 'rgba(0,0,0,0)')
-                border  = 'border-left:3px solid #43E97B;' if is_best else 'border-left:3px solid transparent;'
-                model_cell = f'''<td style="padding:14px 18px;white-space:nowrap;min-width:160px">
-                        <div style="font-weight:700;font-size:14px;color:#E8E9F0">{row["Model"]}</div>
-                        {"<div style='margin-top:4px'><span style='background:rgba(67,233,123,0.18);color:#43E97B;font-size:10px;padding:2px 8px;border-radius:20px;font-weight:700;letter-spacing:0.5px'>★ BEST MODEL</span></div>" if is_best else ""}
-                    </td>'''
-                cells = f'<td style="padding:14px 16px;text-align:center;font-size:18px">{medal}</td>' + model_cell
+                is_best  = (i == 0)
+                medal    = medals[i] if i < 3 else f'<span style="color:#666;font-size:12px">#{i+1}</span>'
+                row_bg   = 'rgba(67,233,123,0.04)' if is_best else ('rgba(255,255,255,0.02)' if i % 2 == 0 else 'rgba(0,0,0,0)')
+                border   = 'border-left:3px solid #43E97B;' if is_best else 'border-left:3px solid transparent;'
+                model_td = f'''<td style="padding:14px 18px;min-width:160px">
+                    <div style="font-weight:700;font-size:14px;color:#E8E9F0">{row["Model"]}</div>
+                    {"<div style='margin-top:5px'><span style='background:rgba(67,233,123,0.15);color:#43E97B;font-size:10px;padding:2px 9px;border-radius:20px;font-weight:700;letter-spacing:0.5px'>★ BEST</span></div>" if is_best else ""}
+                </td>'''
+                cells = f'<td style="padding:14px 16px;text-align:center;font-size:18px">{medal}</td>' + model_td
                 for k in data_keys:
-                    val = row.get(k, None)
-                    bg  = cell_color(val, k) if (val is not None and val != 'N/A') else 'transparent'
-                    cells += f'<td style="padding:12px 18px;background:{bg};min-width:120px;vertical-align:middle">{format_val(val, k)}</td>'
+                    val    = row.get(k, None)
+                    rp     = get_rank_pct(val, k) if k != 'CV Score' else None
+                    _, bg  = rank_color(rp) if rp is not None else ('#fff', 'transparent')
+                    cells += f'<td style="padding:11px 16px;background:{bg};min-width:130px;vertical-align:middle">{format_cell(val, k)}</td>'
                 rows_html += f'<tr style="background:{row_bg};{border}">{cells}</tr>'
 
             header_cells = ''.join(
-                f'<th style="padding:14px {"16px" if h=="#" else "18px"};text-align:{"center" if h=="#" else "left"};font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#6C63FF;white-space:nowrap;border-bottom:2px solid rgba(108,99,255,0.3)">{h}</th>'
+                f'<th style="padding:13px {"14px" if h=="#" else "16px"};text-align:{"center" if h=="#" else "left"};'
+                f'font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#6C63FF;'
+                f'white-space:nowrap;border-bottom:2px solid rgba(108,99,255,0.3)">{h}</th>'
                 for h in headers
             )
 
-            legend_items = '''
-                <div style="display:inline-flex;gap:5px;align-items:center"><div style="width:10px;height:10px;background:#43E97B;border-radius:2px;opacity:0.8"></div><span>≥ 90%</span></div>
-                <div style="display:inline-flex;gap:5px;align-items:center"><div style="width:10px;height:10px;background:#38F9D7;border-radius:2px;opacity:0.8"></div><span>≥ 80%</span></div>
-                <div style="display:inline-flex;gap:5px;align-items:center"><div style="width:10px;height:10px;background:#F9AB00;border-radius:2px;opacity:0.8"></div><span>≥ 65%</span></div>
-                <div style="display:inline-flex;gap:5px;align-items:center"><div style="width:10px;height:10px;background:#FF4757;border-radius:2px;opacity:0.8"></div><span>< 65%</span></div>
-            ''' if ptype == 'classification' else '''
-                <div style="display:inline-flex;gap:5px;align-items:center"><div style="width:10px;height:10px;background:#43E97B;border-radius:2px;opacity:0.8"></div><span>Best</span></div>
-                <div style="display:inline-flex;gap:5px;align-items:center"><div style="width:10px;height:10px;background:#38F9D7;border-radius:2px;opacity:0.8"></div><span>Good</span></div>
-                <div style="display:inline-flex;gap:5px;align-items:center"><div style="width:10px;height:10px;background:#F9AB00;border-radius:2px;opacity:0.8"></div><span>Fair</span></div>
-                <div style="display:inline-flex;gap:5px;align-items:center"><div style="width:10px;height:10px;background:#FF4757;border-radius:2px;opacity:0.8"></div><span>Worst</span></div>
-                <div style="display:inline-flex;gap:5px;align-items:center;opacity:0.6"><span style="font-size:10px;font-style:italic">Bars = relative rank among models</span></div>
-            '''
+            # Legend — always show score range for context
+            score_vals = [float(r) for r in rdf[score_col] if r is not None]
+            sc_lo, sc_hi = min(score_vals), max(score_vals)
+
+            legend_items = f'''
+                <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:11px;color:rgba(232,233,240,0.6)">
+                    <div style="display:flex;gap:5px;align-items:center"><div style="width:9px;height:9px;background:#43E97B;border-radius:2px"></div><span>▲ Best in column</span></div>
+                    <div style="display:flex;gap:5px;align-items:center"><div style="width:9px;height:9px;background:#38F9D7;border-radius:2px"></div><span>2nd tier</span></div>
+                    <div style="display:flex;gap:5px;align-items:center"><div style="width:9px;height:9px;background:#F9AB00;border-radius:2px"></div><span>3rd tier</span></div>
+                    <div style="display:flex;gap:5px;align-items:center"><div style="width:9px;height:9px;background:#FF4757;border-radius:2px"></div><span>▼ Worst in column</span></div>
+                    <span style="opacity:0.5;font-style:italic">{score_col} range: {sc_lo:.4f} → {sc_hi:.4f}</span>
+                </div>'''
 
             st.markdown(f"""
             <div style="border-radius:16px;overflow:hidden;border:1px solid rgba(108,99,255,0.2);margin:16px 0;">
@@ -1505,7 +1513,7 @@ with tabs[3]:
                 </table>
                 </div>
                 <div style="background:rgba(0,0,0,0.2);padding:12px 20px;border-top:1px solid rgba(255,255,255,0.04);font-size:11px;color:rgba(232,233,240,0.4)">
-                    💡 Each cell shows value + mini progress bar · Green = best · CV Score = 5-fold cross-validation mean ± std
+                    💡 Bar height = relative rank within each column independently · ▲ Best / ▼ Worst labels = only the #1 and #last ranked model per metric · CV = 5-fold mean ± std
                 </div>
             </div>
             """, unsafe_allow_html=True)
