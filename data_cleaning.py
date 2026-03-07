@@ -2753,13 +2753,18 @@ with tabs[11]:
                         if history_for_gemini and history_for_gemini[0]['role'] == 'user':
                             history_for_gemini[0]['parts'][0]['text'] = system_prompt + "\n\nUser question: " + history_for_gemini[0]['parts'][0]['text']
 
-                        gemini_models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-flash-8b"]
+                        gemini_models = [
+                            ("v1beta", "gemini-2.0-flash"),
+                            ("v1beta", "gemini-2.0-flash-lite"),
+                            ("v1",     "gemini-1.5-flash"),
+                            ("v1",     "gemini-1.5-flash-8b"),
+                        ]
                         ai_reply = ""
-                        for attempt, gmodel in enumerate(gemini_models):
+                        for attempt, (api_ver, gmodel) in enumerate(gemini_models):
                             if attempt > 0:
-                                import time; time.sleep(3)
+                                import time; time.sleep(2)
                             resp = requests.post(
-                                f"https://generativelanguage.googleapis.com/v1beta/models/{gmodel}:generateContent?key={api_key}",
+                                f"https://generativelanguage.googleapis.com/{api_ver}/models/{gmodel}:generateContent?key={api_key}",
                                 headers={"Content-Type": "application/json"},
                                 json={"contents": history_for_gemini,
                                       "generationConfig": {"maxOutputTokens": 1500, "temperature": 0.7}},
@@ -2778,6 +2783,11 @@ with tabs[11]:
                                 break
                             elif resp.status_code == 400:
                                 ai_reply = f"❌ **Bad Request:** {resp.json().get('error', {}).get('message', resp.text[:200])}"
+                                break
+                            elif resp.status_code == 404:
+                                if attempt < len(gemini_models) - 1:
+                                    continue  # try next model/version
+                                ai_reply = f"❌ **All Gemini models unavailable.** Try Groq provider instead."
                                 break
                             else:
                                 ai_reply = f"❌ **Gemini Error {resp.status_code}:** {resp.text[:300]}"
