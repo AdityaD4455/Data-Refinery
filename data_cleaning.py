@@ -2844,7 +2844,7 @@ with tabs[11]:
                         resp = requests.post(
                             "https://api.groq.com/openai/v1/chat/completions",
                             headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
-                            json={"model": "llama-3.1-70b-versatile", "messages": groq_msgs, "max_tokens": 1500},
+                            json={"model": "llama-3.3-70b-versatile", "messages": groq_msgs, "max_tokens": 1500},
                             timeout=60
                         )
                         if resp.status_code == 200:
