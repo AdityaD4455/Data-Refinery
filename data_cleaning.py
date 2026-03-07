@@ -2539,8 +2539,22 @@ with tabs[10]:
 
             shap_tab1, shap_tab2, shap_tab3 = st.tabs(["📊 Feature Importance", "🔍 Sample Explanation", "🌡️ Heatmap"])
 
+            # Normalize X_test to always be a DataFrame
+            if not isinstance(X_test, pd.DataFrame):
+                X_test = pd.DataFrame(X_test, columns=features)
+
+            # Normalize sv to always be 2D numpy array
+            sv_arr = np.array(sv)
+            if isinstance(sv_arr, list):
+                sv_arr = np.array(sv_arr[0])
+            if sv_arr.ndim == 1:
+                sv_arr = sv_arr.reshape(1, -1)
+            # For multiclass (3D), take mean across classes
+            if sv_arr.ndim == 3:
+                sv_arr = sv_arr.mean(axis=0)
+
             with shap_tab1:
-                mean_abs_shap = np.abs(sv).mean(axis=0) if sv.ndim > 1 else sv
+                mean_abs_shap = np.abs(sv_arr).mean(axis=0)
                 fi_df = pd.DataFrame({'Feature': features, 'SHAP Importance': mean_abs_shap})
                 fi_df = fi_df.sort_values('SHAP Importance', ascending=True).tail(20)
                 fig = px.bar(fi_df, x='SHAP Importance', y='Feature', orientation='h',
@@ -2550,24 +2564,31 @@ with tabs[10]:
                 st.plotly_chart(fig, use_container_width=True)
 
             with shap_tab2:
-                sample_idx = st.slider("Select Sample Index", 0, min(99, len(X_test)-1), 0, key="shap_sample")
-                sample_sv = sv[sample_idx] if sv.ndim > 1 else sv
-                sample_df = pd.DataFrame({'Feature': features, 'SHAP Value': sample_sv,
-                                         'Feature Value': X_test.iloc[sample_idx].values})
-                sample_df['Direction'] = sample_df['SHAP Value'].apply(lambda x: '▲ Increases prediction' if x > 0 else '▼ Decreases prediction')
-                sample_df = sample_df.reindex(sample_df['SHAP Value'].abs().sort_values(ascending=False).index)
+                max_idx = min(99, len(X_test) - 1)
+                sample_idx = st.slider("Select Sample Index", 0, max_idx, 0, key="shap_sample")
+                sample_sv = sv_arr[sample_idx] if sample_idx < len(sv_arr) else sv_arr[0]
+                feat_vals = X_test.iloc[sample_idx].values if sample_idx < len(X_test) else X_test.iloc[0].values
+                sample_df = pd.DataFrame({
+                    'Feature': features,
+                    'SHAP Value': sample_sv,
+                    'Feature Value': feat_vals
+                })
+                sample_df['Direction'] = sample_df['SHAP Value'].apply(
+                    lambda x: '▲ Increases prediction' if x > 0 else '▼ Decreases prediction')
+                sample_df = sample_df.iloc[sample_df['SHAP Value'].abs().argsort()[::-1]]
                 colors = ['#43E97B' if v > 0 else '#FF4757' for v in sample_df['SHAP Value']]
                 fig2 = go.Figure(go.Bar(x=sample_df['SHAP Value'], y=sample_df['Feature'],
                                        orientation='h', marker_color=colors))
-                fig2.update_layout(**plotly_dark_layout(title=f"Sample #{sample_idx} — Waterfall Explanation", height=500))
+                fig2.update_layout(**plotly_dark_layout(title=f"Sample #{sample_idx} — Feature Contributions", height=500))
                 st.plotly_chart(fig2, use_container_width=True)
-                st.dataframe(sample_df[['Feature','Feature Value','SHAP Value','Direction']].reset_index(drop=True),
+                st.dataframe(sample_df[['Feature', 'Feature Value', 'SHAP Value', 'Direction']].reset_index(drop=True),
                             use_container_width=True, hide_index=True)
 
             with shap_tab3:
                 top_n = min(10, len(features))
-                top_feats_idx = np.argsort(np.abs(sv).mean(axis=0))[-top_n:][::-1]
-                heat_data = sv[:, top_feats_idx] if sv.ndim > 1 else sv.reshape(1,-1)[:, top_feats_idx]
+                mean_shap_per_feat = np.abs(sv_arr).mean(axis=0)
+                top_feats_idx = np.argsort(mean_shap_per_feat)[-top_n:][::-1]
+                heat_data = sv_arr[:, top_feats_idx]
                 top_feat_names = [features[i] for i in top_feats_idx]
                 fig3 = px.imshow(heat_data.T, x=list(range(len(heat_data))), y=top_feat_names,
                                 color_continuous_scale='RdBu_r', title="SHAP Values Heatmap (samples × features)",
