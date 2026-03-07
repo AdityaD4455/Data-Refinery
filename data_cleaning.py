@@ -2744,33 +2744,44 @@ with tabs[11]:
             try:
                 with st.spinner("🤖 AI is thinking..."):
 
-                    # ── Google Gemini (FREE) ──
+                    # ── Google Gemini (FREE) — with retry & fallback ──
                     if "Gemini" in provider:
                         history_for_gemini = []
                         for m in st.session_state.chat_history[-12:]:
                             role = "user" if m['role'] == 'user' else "model"
                             history_for_gemini.append({"role": role, "parts": [{"text": m['content']}]})
-                        # Inject system context into first user message
                         if history_for_gemini and history_for_gemini[0]['role'] == 'user':
                             history_for_gemini[0]['parts'][0]['text'] = system_prompt + "\n\nUser question: " + history_for_gemini[0]['parts'][0]['text']
 
-                        resp = requests.post(
-                            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}",
-                            headers={"Content-Type": "application/json"},
-                            json={"contents": history_for_gemini,
-                                  "generationConfig": {"maxOutputTokens": 1500, "temperature": 0.7}},
-                            timeout=60
-                        )
-                        if resp.status_code == 200:
-                            ai_reply = resp.json()['candidates'][0]['content']['parts'][0]['text']
-                        elif resp.status_code == 400:
-                            ai_reply = f"❌ **Bad Request:** {resp.json().get('error', {}).get('message', resp.text[:200])}"
-                        elif resp.status_code == 403:
-                            ai_reply = "❌ **Invalid API Key.** Check your Gemini key at aistudio.google.com/app/apikey"
-                        elif resp.status_code == 429:
-                            ai_reply = "⚠️ **Rate limit hit.** Free tier: 15 requests/min. Wait a moment and retry."
-                        else:
-                            ai_reply = f"❌ **Gemini Error {resp.status_code}:** {resp.text[:300]}"
+                        gemini_models = ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash-8b"]
+                        ai_reply = ""
+                        for attempt, gmodel in enumerate(gemini_models):
+                            if attempt > 0:
+                                import time; time.sleep(3)
+                            resp = requests.post(
+                                f"https://generativelanguage.googleapis.com/v1beta/models/{gmodel}:generateContent?key={api_key}",
+                                headers={"Content-Type": "application/json"},
+                                json={"contents": history_for_gemini,
+                                      "generationConfig": {"maxOutputTokens": 1500, "temperature": 0.7}},
+                                timeout=60
+                            )
+                            if resp.status_code == 200:
+                                ai_reply = resp.json()['candidates'][0]['content']['parts'][0]['text']
+                                break
+                            elif resp.status_code == 429:
+                                if attempt < len(gemini_models) - 1:
+                                    continue  # try next model
+                                ai_reply = "⚠️ **Rate limit hit on all models.** Please wait 1 minute and try again. Free tier limit: 15 req/min."
+                                break
+                            elif resp.status_code == 403:
+                                ai_reply = "❌ **Invalid API Key.** Check at [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)"
+                                break
+                            elif resp.status_code == 400:
+                                ai_reply = f"❌ **Bad Request:** {resp.json().get('error', {}).get('message', resp.text[:200])}"
+                                break
+                            else:
+                                ai_reply = f"❌ **Gemini Error {resp.status_code}:** {resp.text[:300]}"
+                                break
 
                     # ── Groq (FREE) ──
                     elif "Groq" in provider:
@@ -2898,4 +2909,3 @@ st.markdown("""
     </div>
 </div>
 """, unsafe_allow_html=True)
-
