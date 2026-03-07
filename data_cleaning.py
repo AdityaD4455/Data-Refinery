@@ -81,8 +81,8 @@ _state_defaults = {
     'df': None, 'df2': None, 'history': [], 'trained_models': {},
     'best_model': None, 'last_change': None, 'auto_insights': [],
     'feature_importance': None, 'data_quality_score': None,
-    'chat_history': [], 'sql_history': [], 'shap_values': None
-
+    'chat_history': [], 'sql_history': [], 'shap_values': None,
+    'ai_api_key': '', 'ai_provider': '🆓 Google Gemini (Free)'
 }
 for k, v in _state_defaults.items():
     if k not in st.session_state:
@@ -2620,7 +2620,6 @@ with tabs[11]:
 
         provider = st.selectbox("🤖 Select Provider", ["🆓 Google Gemini (Free)", "🆓 Groq (Free)", "💳 Anthropic Claude (Paid)"],
                                 key="ai_provider", index=0)
-        st.session_state['ai_provider'] = provider
 
         if "Gemini" in provider:
             placeholder, prefix, label = "AIza...", "AIza", "Google Gemini API Key"
@@ -2651,8 +2650,8 @@ with tabs[11]:
                 st.session_state['ai_api_key'] = ''
                 st.rerun()
 
-    api_key    = st.session_state.get('ai_api_key', '')
-    provider   = st.session_state.get('ai_provider', '🆓 Google Gemini (Free)')
+    api_key  = st.session_state.get('ai_api_key', '')
+    provider = st.session_state.get('ai_provider', '🆓 Google Gemini (Free)')
 
     if not api_key:
         st.markdown('<div class="alert-warning">⚠️ <b>API key nahi mili.</b> Upar "Setup" section mein apni free key enter karo.<br><br>👉 Google Gemini ke liye: <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:#F9AB00">aistudio.google.com/app/apikey</a> — bilkul free hai!</div>', unsafe_allow_html=True)
