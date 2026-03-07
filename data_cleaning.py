@@ -2598,181 +2598,230 @@ with tabs[10]:
 
 
 # ═══════════════════════════════════════════════════════════
-# TAB 12: AI ASSISTANT
+# TAB 12: AI ASSISTANT  (Google Gemini — FREE)
 # ═══════════════════════════════════════════════════════════
 with tabs[11]:
     st.markdown("## 💬 AI Data Assistant")
 
-    # ── API Key Setup ──
-    with st.expander("🔑 API Key Setup", expanded='ai_api_key' not in st.session_state or not st.session_state.get('ai_api_key','')):
-        st.markdown('<div class="alert-info">Enter your <b>Anthropic API key</b> to use the AI Assistant. Get one at <a href="https://console.anthropic.com" target="_blank" style="color:#a8a4ff">console.anthropic.com</a></div>', unsafe_allow_html=True)
-        api_key_input = st.text_input("Anthropic API Key", type="password",
-                                      value=st.session_state.get('ai_api_key', ''),
-                                      placeholder="sk-ant-api03-...", key="api_key_field")
+    # ── Provider Selection & API Key Setup ──
+    with st.expander("🔑 Setup — Choose AI Provider (Free Options Available)", expanded=not st.session_state.get('ai_api_key','')):
+        st.markdown("""
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+            <div style="background:rgba(67,233,123,0.08);border:1px solid rgba(67,233,123,0.25);border-radius:12px;padding:14px">
+                <div style="font-weight:700;color:#43E97B;margin-bottom:6px">🆓 Google Gemini — RECOMMENDED</div>
+                <div style="font-size:12px;color:rgba(232,233,240,0.7)">✅ Completely FREE · 1500 requests/day<br>✅ Very accurate (Gemini 1.5 Flash)<br>✅ Key milti hai: <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:#43E97B">aistudio.google.com</a></div>
+            </div>
+            <div style="background:rgba(108,99,255,0.08);border:1px solid rgba(108,99,255,0.25);border-radius:12px;padding:14px">
+                <div style="font-weight:700;color:#a8a4ff;margin-bottom:6px">🆓 Groq — FASTEST FREE</div>
+                <div style="font-size:12px;color:rgba(232,233,240,0.7)">✅ Free tier · Llama 3.1 70B model<br>✅ Super fast responses<br>✅ Key milti hai: <a href="https://console.groq.com" target="_blank" style="color:#a8a4ff">console.groq.com</a></div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        provider = st.selectbox("🤖 Select Provider", ["🆓 Google Gemini (Free)", "🆓 Groq (Free)", "💳 Anthropic Claude (Paid)"],
+                                key="ai_provider", index=0)
+        st.session_state['ai_provider'] = provider
+
+        if "Gemini" in provider:
+            placeholder, prefix, label = "AIza...", "AIza", "Google Gemini API Key"
+            help_url = "https://aistudio.google.com/app/apikey"
+        elif "Groq" in provider:
+            placeholder, prefix, label = "gsk_...", "gsk_", "Groq API Key"
+            help_url = "https://console.groq.com/keys"
+        else:
+            placeholder, prefix, label = "sk-ant-...", "sk-ant-", "Anthropic API Key"
+            help_url = "https://console.anthropic.com"
+
+        st.markdown(f'<div class="alert-info">🔗 Get your free key here: <a href="{help_url}" target="_blank" style="color:#a8a4ff"><b>{help_url}</b></a></div>', unsafe_allow_html=True)
+
+        key_input = st.text_input(label, type="password",
+                                  value=st.session_state.get('ai_api_key', ''),
+                                  placeholder=placeholder, key="api_key_field")
         c1, c2 = st.columns(2)
         with c1:
             if st.button("💾 Save Key", use_container_width=True, key="save_key_btn"):
-                if api_key_input.startswith("sk-ant-"):
-                    st.session_state['ai_api_key'] = api_key_input
-                    st.success("✅ API key saved!")
+                if key_input and len(key_input) > 10:
+                    st.session_state['ai_api_key'] = key_input
+                    st.success("✅ API key saved! You can now start chatting.")
                     st.rerun()
                 else:
-                    st.error("❌ Invalid key format. Should start with 'sk-ant-'")
+                    st.error("❌ Please enter a valid API key")
         with c2:
             if st.button("🗑️ Clear Key", use_container_width=True, key="clear_key_btn"):
                 st.session_state['ai_api_key'] = ''
                 st.rerun()
 
-    api_key = st.session_state.get('ai_api_key', '')
+    api_key    = st.session_state.get('ai_api_key', '')
+    provider   = st.session_state.get('ai_provider', '🆓 Google Gemini (Free)')
 
     if not api_key:
-        st.markdown('<div class="alert-warning">⚠️ Please enter your Anthropic API key above to start chatting.</div>', unsafe_allow_html=True)
+        st.markdown('<div class="alert-warning">⚠️ <b>API key nahi mili.</b> Upar "Setup" section mein apni free key enter karo.<br><br>👉 Google Gemini ke liye: <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:#F9AB00">aistudio.google.com/app/apikey</a> — bilkul free hai!</div>', unsafe_allow_html=True)
     else:
         # ── Build rich data context ──
         nc_cols = df.select_dtypes(include=np.number).columns.tolist()
         cc_cols = df.select_dtypes(include='object').columns.tolist()
         miss_cols = df.isnull().sum()
         miss_cols = miss_cols[miss_cols > 0].to_dict()
-        try:
-            desc_stats = df.describe().round(3).to_dict()
-        except:
-            desc_stats = {}
+        try:    desc_stats = df.describe().round(3).to_dict()
+        except: desc_stats = {}
         data_ctx = (
             f"Dataset shape: {df.shape[0]} rows × {df.shape[1]} columns.\n"
             f"Numeric columns ({len(nc_cols)}): {', '.join(nc_cols[:15])}.\n"
             f"Categorical columns ({len(cc_cols)}): {', '.join(cc_cols[:15])}.\n"
-            f"Total missing values: {df.isnull().sum().sum()} "
-            f"({'in cols: ' + str(miss_cols) if miss_cols else 'none'}).\n"
-            f"Column dtypes: {dict(df.dtypes.astype(str))}.\n"
-            f"Descriptive statistics: {desc_stats}.\n"
-            f"Duplicate rows: {df.duplicated().sum()}.\n"
-            f"Trained models: {list(st.session_state.trained_models.keys()) if st.session_state.trained_models else 'None'}.\n"
+            f"Missing values: {df.isnull().sum().sum()} ({'cols: ' + str(miss_cols) if miss_cols else 'none'}).\n"
+            f"Dtypes: {dict(df.dtypes.astype(str))}.\n"
+            f"Stats: {desc_stats}.\n"
+            f"Duplicates: {df.duplicated().sum()}.\n"
+            f"Trained models: {list(st.session_state.trained_models.keys()) or 'None'}.\n"
+        )
+        system_prompt = (
+            "You are an expert data scientist embedded in an ML Analytics app. "
+            "Dataset context:\n\n" + data_ctx + "\n\n"
+            "Instructions: Be concise and actionable. Reference actual column names. "
+            "Use markdown formatting, bullet points, and code blocks where helpful. "
+            "Suggest Python/pandas code when relevant."
         )
 
-        # ── Quick prompt buttons ──
+        # ── Quick prompts ──
         st.markdown("**💡 Quick questions:**")
         qcols = st.columns(3)
         quick_prompts = [
             "What are the main patterns in this data?",
             "Which columns have data quality issues?",
             "What ML model would you recommend?",
-            "Which features are most important to analyze?",
-            "Are there any outliers I should be aware of?",
-            "What transformations should I apply before modeling?",
-            "Give me a full EDA summary of this dataset.",
-            "How should I handle the missing values?",
-            "Is this data suitable for classification or regression?"
+            "Which features are most important?",
+            "Are there outliers I should handle?",
+            "What transforms to apply before modeling?",
+            "Give me a full EDA summary.",
+            "How to handle the missing values?",
+            "Classification or regression problem?"
         ]
         for i, qp in enumerate(quick_prompts):
             with qcols[i % 3]:
-                if st.button(qp[:38] + ("…" if len(qp) > 38 else ""), key=f"qp_{i}", use_container_width=True):
+                if st.button(qp[:36] + ("…" if len(qp) > 36 else ""), key=f"qp_{i}", use_container_width=True):
                     st.session_state['ai_prefill'] = qp
 
-        # ── Chat history display ──
+        # ── Chat history ──
         if st.session_state.chat_history:
             st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
             for msg in st.session_state.chat_history:
                 if msg['role'] == 'user':
-                    st.markdown(f'<div style="display:flex;justify-content:flex-end;margin:10px 0">'
-                                f'<div style="background:rgba(108,99,255,0.12);border:1px solid rgba(108,99,255,0.3);'
-                                f'border-radius:16px 16px 4px 16px;padding:12px 18px;max-width:80%;font-size:14px">'
-                                f'👤 <b>You</b><br><span style="color:#E8E9F0">{msg["content"]}</span>'
-                                f'</div></div>', unsafe_allow_html=True)
+                    st.markdown(
+                        f'<div style="display:flex;justify-content:flex-end;margin:10px 0">'
+                        f'<div style="background:rgba(108,99,255,0.12);border:1px solid rgba(108,99,255,0.3);'
+                        f'border-radius:16px 16px 4px 16px;padding:12px 18px;max-width:80%;font-size:14px">'
+                        f'👤 <b>You</b><br><span style="color:#E8E9F0">{msg["content"]}</span>'
+                        f'</div></div>', unsafe_allow_html=True)
                 else:
-                    st.markdown(f'<div style="display:flex;justify-content:flex-start;margin:10px 0">'
-                                f'<div style="background:rgba(67,233,123,0.06);border:1px solid rgba(67,233,123,0.2);'
-                                f'border-radius:16px 16px 16px 4px;padding:12px 18px;max-width:85%;font-size:14px">'
-                                f'🤖 <b>AI Assistant</b></div></div>', unsafe_allow_html=True)
-                    # Render AI response as proper markdown
+                    st.markdown(
+                        f'<div style="background:rgba(67,233,123,0.06);border:1px solid rgba(67,233,123,0.2);'
+                        f'border-radius:4px 16px 16px 16px;padding:12px 18px;margin:10px 0;font-size:14px">'
+                        f'🤖 <b>AI Assistant</b></div>', unsafe_allow_html=True)
                     st.markdown(msg["content"])
             st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
-        # ── Input area ──
+        # ── Input ──
         prefill = st.session_state.pop('ai_prefill', '')
-        user_input = st.text_area(
-            "Ask anything about your data:",
-            value=prefill,
-            placeholder="e.g. What cleaning steps should I do? Which model is best for this data?",
-            height=100, key="ai_chat_input"
-        )
-
+        user_input = st.text_area("Ask anything about your data:", value=prefill, height=100,
+                                  placeholder="e.g. What patterns exist? Which model is best?",
+                                  key="ai_chat_input")
         c1, c2, c3 = st.columns([4, 1, 1])
-        with c1: send_btn = st.button("📤 Send Message", use_container_width=True, type="primary", key="ai_send")
-        with c2: clear_btn = st.button("🗑️ Clear Chat", use_container_width=True, key="ai_clear")
-        with c3: export_btn = st.button("📥 Export Chat", use_container_width=True, key="ai_export")
+        with c1: send_btn   = st.button("📤 Send", use_container_width=True, type="primary", key="ai_send")
+        with c2: clear_btn  = st.button("🗑️ Clear", use_container_width=True, key="ai_clear")
+        with c3: export_btn = st.button("📥 Export", use_container_width=True, key="ai_export")
 
         if clear_btn:
             st.session_state.chat_history = []
             st.rerun()
 
         if export_btn and st.session_state.chat_history:
-            chat_text = "\n\n".join([
-                f"{'YOU' if m['role']=='user' else 'AI'}: {m['content']}"
-                for m in st.session_state.chat_history
-            ])
-            st.download_button("💾 Download", chat_text,
-                               f"chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-                               "text/plain", key="chat_dl")
+            chat_txt = "\n\n".join([f"{'YOU' if m['role']=='user' else 'AI'}: {m['content']}" for m in st.session_state.chat_history])
+            st.download_button("💾 Download", chat_txt, f"chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt", "text/plain", key="chat_dl")
 
         if send_btn and user_input.strip():
             st.session_state.chat_history.append({'role': 'user', 'content': user_input})
-
-            system_prompt = (
-                "You are an expert data scientist and ML engineer embedded inside an ML Analytics app. "
-                "The user has uploaded a dataset. Here is the full context of their data:\n\n"
-                f"{data_ctx}\n\n"
-                "Instructions:\n"
-                "- Be concise and actionable\n"
-                "- Reference actual column names and statistics from the data context\n"
-                "- Use markdown: **bold**, bullet points, code blocks where helpful\n"
-                "- If you suggest code, use Python/pandas syntax\n"
-                "- If asked about models, consider the dataset size and problem type\n"
-            )
-
-            api_messages = [
-                {'role': m['role'], 'content': m['content']}
-                for m in st.session_state.chat_history[-12:]
-            ]
+            ai_reply = ""
 
             try:
                 with st.spinner("🤖 AI is thinking..."):
-                    resp = requests.post(
-                        "https://api.anthropic.com/v1/messages",
-                        headers={
-                            "Content-Type": "application/json",
-                            "x-api-key": api_key,
-                            "anthropic-version": "2023-06-01"
-                        },
-                        json={
-                            "model": "claude-sonnet-4-20250514",
-                            "max_tokens": 1500,
-                            "system": system_prompt,
-                            "messages": api_messages
-                        },
-                        timeout=60
-                    )
 
-                if resp.status_code == 200:
-                    ai_reply = resp.json()['content'][0]['text']
-                elif resp.status_code == 401:
-                    ai_reply = "❌ **Invalid API Key.** Please check your key in the setup section above."
-                elif resp.status_code == 429:
-                    ai_reply = "⚠️ **Rate limit hit.** Please wait a moment and try again."
-                elif resp.status_code == 400:
-                    err_detail = resp.json().get('error', {}).get('message', resp.text[:200])
-                    ai_reply = f"❌ **Bad Request:** {err_detail}"
-                else:
-                    ai_reply = f"❌ **API Error {resp.status_code}:** {resp.json().get('error', {}).get('message', resp.text[:300])}"
+                    # ── Google Gemini (FREE) ──
+                    if "Gemini" in provider:
+                        history_for_gemini = []
+                        for m in st.session_state.chat_history[-12:]:
+                            role = "user" if m['role'] == 'user' else "model"
+                            history_for_gemini.append({"role": role, "parts": [{"text": m['content']}]})
+                        # Inject system context into first user message
+                        if history_for_gemini and history_for_gemini[0]['role'] == 'user':
+                            history_for_gemini[0]['parts'][0]['text'] = system_prompt + "\n\nUser question: " + history_for_gemini[0]['parts'][0]['text']
+
+                        resp = requests.post(
+                            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}",
+                            headers={"Content-Type": "application/json"},
+                            json={"contents": history_for_gemini,
+                                  "generationConfig": {"maxOutputTokens": 1500, "temperature": 0.7}},
+                            timeout=60
+                        )
+                        if resp.status_code == 200:
+                            ai_reply = resp.json()['candidates'][0]['content']['parts'][0]['text']
+                        elif resp.status_code == 400:
+                            ai_reply = f"❌ **Bad Request:** {resp.json().get('error', {}).get('message', resp.text[:200])}"
+                        elif resp.status_code == 403:
+                            ai_reply = "❌ **Invalid API Key.** Check your Gemini key at aistudio.google.com/app/apikey"
+                        elif resp.status_code == 429:
+                            ai_reply = "⚠️ **Rate limit hit.** Free tier: 15 requests/min. Wait a moment and retry."
+                        else:
+                            ai_reply = f"❌ **Gemini Error {resp.status_code}:** {resp.text[:300]}"
+
+                    # ── Groq (FREE) ──
+                    elif "Groq" in provider:
+                        groq_msgs = [{"role": "system", "content": system_prompt}]
+                        for m in st.session_state.chat_history[-12:]:
+                            groq_msgs.append({"role": m['role'], "content": m['content']})
+                        resp = requests.post(
+                            "https://api.groq.com/openai/v1/chat/completions",
+                            headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+                            json={"model": "llama-3.1-70b-versatile", "messages": groq_msgs, "max_tokens": 1500},
+                            timeout=60
+                        )
+                        if resp.status_code == 200:
+                            ai_reply = resp.json()['choices'][0]['message']['content']
+                        elif resp.status_code == 401:
+                            ai_reply = "❌ **Invalid Groq API Key.** Check at console.groq.com/keys"
+                        elif resp.status_code == 429:
+                            ai_reply = "⚠️ **Rate limit hit.** Wait a moment and retry."
+                        else:
+                            ai_reply = f"❌ **Groq Error {resp.status_code}:** {resp.text[:300]}"
+
+                    # ── Anthropic (Paid) ──
+                    else:
+                        anth_msgs = [{"role": m['role'], "content": m['content']} for m in st.session_state.chat_history[-12:]]
+                        resp = requests.post(
+                            "https://api.anthropic.com/v1/messages",
+                            headers={"Content-Type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01"},
+                            json={"model": "claude-sonnet-4-20250514", "max_tokens": 1500, "system": system_prompt, "messages": anth_msgs},
+                            timeout=60
+                        )
+                        if resp.status_code == 200:
+                            ai_reply = resp.json()['content'][0]['text']
+                        elif resp.status_code == 401:
+                            ai_reply = "❌ **Invalid Anthropic API Key.**"
+                        elif resp.status_code == 429:
+                            ai_reply = "⚠️ **Rate limit hit.** Wait and retry."
+                        else:
+                            ai_reply = f"❌ **Anthropic Error {resp.status_code}:** {resp.text[:300]}"
 
             except requests.exceptions.Timeout:
-                ai_reply = "⏱️ **Request timed out.** The server took too long. Please try again."
+                ai_reply = "⏱️ **Request timed out.** Try again."
             except requests.exceptions.ConnectionError:
-                ai_reply = "🌐 **Connection error.** Check your internet connection and try again."
+                ai_reply = "🌐 **Connection error.** Check your internet."
             except Exception as e:
-                ai_reply = f"❌ **Unexpected error:** {str(e)}"
+                ai_reply = f"❌ **Error:** {str(e)}"
 
             st.session_state.chat_history.append({'role': 'assistant', 'content': ai_reply})
             st.rerun()
+
+
 
 
 # ═══════════════════════════════════════════════════════════
