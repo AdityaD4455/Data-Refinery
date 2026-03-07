@@ -39,7 +39,28 @@ from datetime import datetime
 import warnings
 import json
 from scipy import stats
-from scipy.stats import shapiro, gaussian_kde
+from scipy.stats import shapiro, gaussian_kde, ttest_ind, chi2_contingency, f_oneway, mannwhitneyu
+import requests
+
+# Optional advanced imports
+try:
+    import shap
+    SHAP_AVAILABLE = True
+except ImportError:
+    SHAP_AVAILABLE = False
+
+try:
+    import pandasql as pdsql
+    SQL_AVAILABLE = True
+except ImportError:
+    SQL_AVAILABLE = False
+
+try:
+    import optuna
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    OPTUNA_AVAILABLE = True
+except ImportError:
+    OPTUNA_AVAILABLE = False
 
 warnings.filterwarnings('ignore')
 
@@ -59,7 +80,9 @@ st.set_page_config(
 _state_defaults = {
     'df': None, 'df2': None, 'history': [], 'trained_models': {},
     'best_model': None, 'last_change': None, 'auto_insights': [],
-    'feature_importance': None, 'data_quality_score': None
+    'feature_importance': None, 'data_quality_score': None,
+    'chat_history': [], 'sql_history': [], 'shap_values': None
+
 }
 for k, v in _state_defaults.items():
     if k not in st.session_state:
@@ -530,10 +553,10 @@ st.markdown("""
     <div class="hero-title">🚀 ML Analytics Pro</div>
     <div class="hero-sub">Advanced Machine Learning · Real-time Insights · Production Ready</div>
     <div class="hero-badges">
-        <span class="badge">v3.0 ELITE</span>
-        <span class="badge badge-green">XGBoost · LightGBM</span>
-        <span class="badge badge-orange">AutoML</span>
-        <span class="badge">Plotly · Sklearn</span>
+        <span class="badge">v4.0 ULTRA</span>
+        <span class="badge badge-green">XGBoost · LightGBM · SHAP</span>
+        <span class="badge badge-orange">AutoML · AI Assistant</span>
+        <span class="badge">SQL · Stats Tests</span>
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -663,7 +686,7 @@ if st.session_state.auto_insights:
 # ─────────────────────────────────────────────────────────────
 # MAIN TABS
 # ─────────────────────────────────────────────────────────────
-tabs = st.tabs(["📊 Overview", "🔧 Clean", "📈 Visualize", "🤖 ML Models", "🎯 Predict", "🧬 Features", "⚙️ Advanced", "🏆 AutoML", "💾 Export"])
+tabs = st.tabs(["📊 Overview", "🔧 Clean", "📈 Visualize", "🤖 ML Models", "🎯 Predict", "🧬 Features", "⚙️ Advanced", "🏆 AutoML", "🔬 Stats Tests", "🗄️ SQL Query", "🧠 SHAP", "💬 AI Assistant", "💾 Export"])
 
 
 # ═══════════════════════════════════════════════════════════
@@ -948,6 +971,65 @@ with tabs[1]:
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error: {e}")
+
+    # ── Auto Data Type Fixer ──
+    with st.expander("🔠 Auto Data Type Fixer", expanded=False):
+        st.markdown("**Automatically detects and fixes wrong data types in your dataset.**")
+        suggestions = []
+        for col in df.columns:
+            dtype = str(df[col].dtype)
+            sample = df[col].dropna().head(100)
+            if dtype == 'object':
+                # Check if it's numeric stored as string
+                try:
+                    pd.to_numeric(sample)
+                    suggestions.append({'Column': col, 'Current': dtype, 'Suggested': 'numeric (float/int)', 'Reason': 'Numeric values stored as text', 'fix': 'numeric'})
+                    continue
+                except: pass
+                # Check if it's datetime
+                try:
+                    pd.to_datetime(sample, infer_datetime_format=True)
+                    suggestions.append({'Column': col, 'Current': dtype, 'Suggested': 'datetime', 'Reason': 'Date/time values stored as text', 'fix': 'datetime'})
+                    continue
+                except: pass
+                # Check if boolean
+                uniq = set(sample.astype(str).str.lower().unique())
+                if uniq <= {'true','false','yes','no','1','0','y','n'}:
+                    suggestions.append({'Column': col, 'Current': dtype, 'Suggested': 'boolean', 'Reason': 'Boolean values stored as text', 'fix': 'bool'})
+                    continue
+                # Check if low-cardinality → category
+                if df[col].nunique() / len(df) < 0.05 and df[col].nunique() < 50:
+                    suggestions.append({'Column': col, 'Current': dtype, 'Suggested': 'category', 'Reason': f'Only {df[col].nunique()} unique values — category saves memory', 'fix': 'category'})
+            elif dtype in ['float64', 'float32']:
+                if (sample.dropna() % 1 == 0).all() and df[col].notna().all():
+                    suggestions.append({'Column': col, 'Current': dtype, 'Suggested': 'int64', 'Reason': 'Float column contains only whole numbers', 'fix': 'int'})
+
+        if suggestions:
+            sdf = pd.DataFrame(suggestions)[['Column','Current','Suggested','Reason']]
+            st.dataframe(sdf, use_container_width=True, hide_index=True)
+            cols_to_fix = st.multiselect("Select columns to fix", [s['Column'] for s in suggestions],
+                                         default=[s['Column'] for s in suggestions], key="dtype_fix_cols")
+            if st.button("🔧 Apply Type Fixes", use_container_width=True, key="dtype_fix_btn"):
+                dc = df.copy()
+                fixed = []
+                for s in suggestions:
+                    if s['Column'] not in cols_to_fix: continue
+                    try:
+                        if s['fix'] == 'numeric':   dc[s['Column']] = pd.to_numeric(dc[s['Column']], errors='coerce')
+                        elif s['fix'] == 'datetime': dc[s['Column']] = pd.to_datetime(dc[s['Column']], infer_datetime_format=True, errors='coerce')
+                        elif s['fix'] == 'bool':    dc[s['Column']] = dc[s['Column']].astype(str).str.lower().map({'true':True,'false':False,'yes':True,'no':False,'1':True,'0':False,'y':True,'n':False})
+                        elif s['fix'] == 'category': dc[s['Column']] = dc[s['Column']].astype('category')
+                        elif s['fix'] == 'int':     dc[s['Column']] = dc[s['Column']].astype('int64')
+                        fixed.append(s['Column'])
+                    except Exception as ex:
+                        st.warning(f"Could not fix {s['Column']}: {ex}")
+                if fixed:
+                    push_history(dc, f"🔠 Auto dtype fix: {', '.join(fixed)}")
+                    st.session_state.df = dc
+                    st.success(f"✅ Fixed {len(fixed)} columns!")
+                    st.rerun()
+        else:
+            st.markdown('<div class="alert-success">✅ All data types look correct! No fixes needed.</div>', unsafe_allow_html=True)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -2195,7 +2277,409 @@ with tabs[7]:
 # ═══════════════════════════════════════════════════════════
 # TAB 9: EXPORT
 # ═══════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════
+# TAB 9: STATISTICAL TESTS
+# ═══════════════════════════════════════════════════════════
 with tabs[8]:
+    st.markdown("## 🔬 Statistical Tests & Hypothesis Testing")
+    nc = df.select_dtypes(include=np.number).columns.tolist()
+    cc = df.select_dtypes(include='object').columns.tolist()
+
+    test_type = st.selectbox("Select Test", [
+        "📊 T-Test (2 group means comparison)",
+        "📊 Mann-Whitney U (non-parametric T-Test)",
+        "📊 ANOVA (3+ group means comparison)",
+        "📊 Chi-Square (categorical independence)",
+        "📊 Shapiro-Wilk (normality check)",
+        "📊 Correlation Matrix with P-values",
+    ], key="stat_test_type")
+
+    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+
+    if "T-Test" in test_type or "Mann-Whitney" in test_type:
+        c1, c2, c3 = st.columns(3)
+        with c1: num_col = st.selectbox("Numeric Column", nc, key="tt_num")
+        with c2: grp_col = st.selectbox("Group Column", cc + [c for c in nc if df[c].nunique() <= 10], key="tt_grp")
+        with c3: alpha = st.slider("Significance Level (α)", 0.01, 0.10, 0.05, 0.01, key="tt_alpha")
+
+        if st.button("▶ Run Test", use_container_width=True, key="tt_run"):
+            try:
+                groups = df.groupby(grp_col)[num_col].apply(lambda x: x.dropna().values)
+                if len(groups) < 2:
+                    st.error("Need at least 2 groups!")
+                else:
+                    g1_name, g1 = list(groups.items())[0]
+                    g2_name, g2 = list(groups.items())[1]
+                    if "Mann" in test_type:
+                        stat, p = mannwhitneyu(g1, g2, alternative='two-sided')
+                        test_name = "Mann-Whitney U"
+                    else:
+                        stat, p = ttest_ind(g1, g2)
+                        test_name = "Independent T-Test"
+
+                    result_color = "#43E97B" if p > alpha else "#FF4757"
+                    conclusion = "✅ Fail to reject H₀ — No significant difference" if p > alpha else "❌ Reject H₀ — Significant difference exists"
+                    st.markdown(f'<div style="background:rgba(0,0,0,0.3);border:1px solid {result_color};border-radius:16px;padding:28px;margin:16px 0;text-align:center">'
+                                f'<div style="font-size:13px;color:rgba(232,233,240,0.6);margin-bottom:8px">{test_name} Result</div>'
+                                f'<div style="display:flex;justify-content:center;gap:48px;margin:16px 0">'
+                                f'<div><div style="font-size:11px;color:rgba(232,233,240,0.5)">TEST STATISTIC</div><div style="font-size:32px;font-weight:800;color:#E8E9F0">{stat:.4f}</div></div>'
+                                f'<div><div style="font-size:11px;color:rgba(232,233,240,0.5)">P-VALUE</div><div style="font-size:32px;font-weight:800;color:{result_color}">{p:.4f}</div></div>'
+                                f'<div><div style="font-size:11px;color:rgba(232,233,240,0.5)">ALPHA</div><div style="font-size:32px;font-weight:800;color:#E8E9F0">{alpha}</div></div>'
+                                f'</div>'
+                                f'<div style="font-size:15px;font-weight:600;color:{result_color}">{conclusion}</div>'
+                                f'</div>', unsafe_allow_html=True)
+
+                    fig = go.Figure()
+                    for nm, g in groups.items():
+                        fig.add_trace(go.Box(y=g, name=str(nm), boxpoints='outliers'))
+                    fig.update_layout(**plotly_dark_layout(title=f"{num_col} by {grp_col}", height=380))
+                    st.plotly_chart(fig, use_container_width=True)
+            except Exception as e:
+                st.error(f"Test error: {e}")
+
+    elif "ANOVA" in test_type:
+        c1, c2, c3 = st.columns(3)
+        with c1: num_col = st.selectbox("Numeric Column", nc, key="anova_num")
+        with c2: grp_col = st.selectbox("Group Column", cc + [c for c in nc if df[c].nunique() <= 10], key="anova_grp")
+        with c3: alpha = st.slider("α", 0.01, 0.10, 0.05, 0.01, key="anova_alpha")
+        if st.button("▶ Run ANOVA", use_container_width=True, key="anova_run"):
+            try:
+                groups = [g.dropna().values for _, g in df.groupby(grp_col)[num_col]]
+                f_stat, p = f_oneway(*groups)
+                result_color = "#43E97B" if p > alpha else "#FF4757"
+                conclusion = "✅ Fail to reject H₀ — Group means are equal" if p > alpha else "❌ Reject H₀ — At least one group mean differs"
+                st.markdown(f'<div style="background:rgba(0,0,0,0.3);border:1px solid {result_color};border-radius:16px;padding:28px;margin:16px 0;text-align:center">'
+                            f'<div style="font-size:13px;color:rgba(232,233,240,0.6)">One-Way ANOVA · {df[grp_col].nunique()} groups</div>'
+                            f'<div style="display:flex;justify-content:center;gap:48px;margin:16px 0">'
+                            f'<div><div style="font-size:11px;color:rgba(232,233,240,0.5)">F-STATISTIC</div><div style="font-size:32px;font-weight:800;color:#E8E9F0">{f_stat:.4f}</div></div>'
+                            f'<div><div style="font-size:11px;color:rgba(232,233,240,0.5)">P-VALUE</div><div style="font-size:32px;font-weight:800;color:{result_color}">{p:.4f}</div></div>'
+                            f'</div><div style="font-size:15px;font-weight:600;color:{result_color}">{conclusion}</div></div>', unsafe_allow_html=True)
+                fig = px.violin(df, x=grp_col, y=num_col, box=True, color=grp_col)
+                fig.update_layout(**plotly_dark_layout(height=400))
+                st.plotly_chart(fig, use_container_width=True)
+            except Exception as e: st.error(f"Error: {e}")
+
+    elif "Chi-Square" in test_type:
+        c1, c2, c3 = st.columns(3)
+        with c1: col1 = st.selectbox("Column 1", cc, key="chi_c1")
+        with c2: col2 = st.selectbox("Column 2", cc, key="chi_c2")
+        with c3: alpha = st.slider("α", 0.01, 0.10, 0.05, 0.01, key="chi_alpha")
+        if st.button("▶ Run Chi-Square", use_container_width=True, key="chi_run"):
+            try:
+                ct = pd.crosstab(df[col1], df[col2])
+                chi2, p, dof, expected = chi2_contingency(ct)
+                result_color = "#43E97B" if p > alpha else "#FF4757"
+                conclusion = "✅ Variables are INDEPENDENT" if p > alpha else "❌ Variables are DEPENDENT (significant association)"
+                st.markdown(f'<div style="background:rgba(0,0,0,0.3);border:1px solid {result_color};border-radius:16px;padding:28px;margin:16px 0;text-align:center">'
+                            f'<div style="display:flex;justify-content:center;gap:48px;margin:16px 0">'
+                            f'<div><div style="font-size:11px;color:rgba(232,233,240,0.5)">CHI² STATISTIC</div><div style="font-size:32px;font-weight:800;color:#E8E9F0">{chi2:.4f}</div></div>'
+                            f'<div><div style="font-size:11px;color:rgba(232,233,240,0.5)">P-VALUE</div><div style="font-size:32px;font-weight:800;color:{result_color}">{p:.4f}</div></div>'
+                            f'<div><div style="font-size:11px;color:rgba(232,233,240,0.5)">DOF</div><div style="font-size:32px;font-weight:800;color:#E8E9F0">{dof}</div></div>'
+                            f'</div><div style="font-size:15px;font-weight:600;color:{result_color}">{conclusion}</div></div>', unsafe_allow_html=True)
+                fig = px.imshow(ct, text_auto=True, color_continuous_scale='Viridis', title="Contingency Table")
+                fig.update_layout(**plotly_dark_layout(height=400))
+                st.plotly_chart(fig, use_container_width=True)
+            except Exception as e: st.error(f"Error: {e}")
+
+    elif "Shapiro" in test_type:
+        col = st.selectbox("Select Column", nc, key="sw_col")
+        if st.button("▶ Run Shapiro-Wilk", use_container_width=True, key="sw_run"):
+            try:
+                data = df[col].dropna()
+                if len(data) > 5000: data = data.sample(5000, random_state=42)
+                stat, p = shapiro(data)
+                is_normal = p > 0.05
+                result_color = "#43E97B" if is_normal else "#F9AB00"
+                conclusion = "✅ Data is NORMAL (Gaussian distribution)" if is_normal else "⚠️ Data is NOT normal — consider log/sqrt transform"
+                st.markdown(f'<div style="background:rgba(0,0,0,0.3);border:1px solid {result_color};border-radius:16px;padding:28px;margin:16px 0;text-align:center">'
+                            f'<div style="display:flex;justify-content:center;gap:48px;margin:16px 0">'
+                            f'<div><div style="font-size:11px;color:rgba(232,233,240,0.5)">W STATISTIC</div><div style="font-size:32px;font-weight:800;color:#E8E9F0">{stat:.4f}</div></div>'
+                            f'<div><div style="font-size:11px;color:rgba(232,233,240,0.5)">P-VALUE</div><div style="font-size:32px;font-weight:800;color:{result_color}">{p:.4f}</div></div>'
+                            f'</div><div style="font-size:15px;font-weight:600;color:{result_color}">{conclusion}</div></div>', unsafe_allow_html=True)
+                c1, c2 = st.columns(2)
+                with c1:
+                    fig = px.histogram(data, title=f"{col} Distribution", color_discrete_sequence=['#6C63FF'])
+                    fig.update_layout(**plotly_dark_layout(height=350))
+                    st.plotly_chart(fig, use_container_width=True)
+                with c2:
+                    from scipy.stats import probplot
+                    qq = probplot(data)
+                    fig2 = go.Figure()
+                    fig2.add_trace(go.Scatter(x=qq[0][0], y=qq[0][1], mode='markers', marker=dict(color='#6C63FF', size=4)))
+                    fig2.add_trace(go.Scatter(x=qq[0][0], y=qq[1][0]*np.array(qq[0][0])+qq[1][1], mode='lines', line=dict(color='#43E97B', width=2), name='Normal line'))
+                    fig2.update_layout(**plotly_dark_layout(title="Q-Q Plot", height=350))
+                    st.plotly_chart(fig2, use_container_width=True)
+            except Exception as e: st.error(f"Error: {e}")
+
+    elif "Correlation" in test_type:
+        sel_cols = st.multiselect("Select Numeric Columns", nc, default=nc[:min(8, len(nc))], key="corr_cols")
+        if len(sel_cols) >= 2:
+            corr = df[sel_cols].corr()
+            p_matrix = pd.DataFrame(np.ones_like(corr), columns=sel_cols, index=sel_cols)
+            for i in range(len(sel_cols)):
+                for j in range(i+1, len(sel_cols)):
+                    _, p_val = stats.pearsonr(df[sel_cols[i]].dropna(), df[sel_cols[j]].dropna())
+                    p_matrix.iloc[i,j] = p_val
+                    p_matrix.iloc[j,i] = p_val
+            fig = px.imshow(corr.round(3), text_auto=True, color_continuous_scale='RdBu_r',
+                           zmin=-1, zmax=1, title="Correlation Matrix (with p-values)")
+            fig.update_layout(**plotly_dark_layout(height=500))
+            st.plotly_chart(fig, use_container_width=True)
+            sig_pairs = []
+            for i in range(len(sel_cols)):
+                for j in range(i+1, len(sel_cols)):
+                    if p_matrix.iloc[i,j] < 0.05:
+                        sig_pairs.append(f"**{sel_cols[i]}** ↔ **{sel_cols[j]}**: r={corr.iloc[i,j]:.3f}, p={p_matrix.iloc[i,j]:.4f}")
+            if sig_pairs:
+                st.markdown("**📌 Significant correlations (p < 0.05):**")
+                for pair in sig_pairs: st.markdown(f"- {pair}")
+
+
+# ═══════════════════════════════════════════════════════════
+# TAB 10: SQL QUERY
+# ═══════════════════════════════════════════════════════════
+with tabs[9]:
+    st.markdown("## 🗄️ SQL Query on DataFrame")
+
+    if not SQL_AVAILABLE:
+        st.markdown('<div class="alert-warning">⚠️ <b>pandasql</b> not installed. Run: <code>pip install pandasql</code></div>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="alert-info">💡 Use <b>df</b> as your table name. Full SQL syntax supported.</div>', unsafe_allow_html=True)
+
+        example_queries = [
+            "SELECT * FROM df LIMIT 10",
+            f"SELECT {', '.join(df.columns[:3].tolist())} FROM df LIMIT 20",
+            f"SELECT COUNT(*) as total, AVG({df.select_dtypes(include=np.number).columns[0] if len(df.select_dtypes(include=np.number).columns) > 0 else 'rowid'}) as avg_val FROM df",
+        ]
+        ex_query = st.selectbox("📋 Example Queries", ["Custom"] + example_queries, key="sql_example")
+        default_q = "" if ex_query == "Custom" else ex_query
+
+        sql_query = st.text_area("Write your SQL query:", value=default_q, height=120, key="sql_input",
+                                 placeholder="SELECT * FROM df WHERE column > 100 LIMIT 50")
+        c1, c2 = st.columns([3,1])
+        with c1:
+            run_sql = st.button("▶ Execute Query", use_container_width=True, type="primary", key="sql_run")
+        with c2:
+            save_result = st.checkbox("Save result as new dataset", key="sql_save")
+
+        if run_sql and sql_query.strip():
+            try:
+                with st.spinner("Running query..."):
+                    result = pdsql.sqldf(sql_query, {'df': df})
+                st.markdown(f'<div class="alert-success">✅ Query returned <b>{len(result):,} rows</b> × <b>{len(result.columns)} columns</b></div>', unsafe_allow_html=True)
+                st.dataframe(result, use_container_width=True, height=400)
+
+                if save_result:
+                    push_history(result, f"🗄️ SQL Query result")
+                    st.session_state.df = result
+                    st.success("✅ Result saved as current dataset!")
+                    st.rerun()
+
+                st.session_state.sql_history.append({'query': sql_query, 'rows': len(result), 'time': datetime.now()})
+                download_button(result, "csv", "📥 Download Result", "sql_dl")
+            except Exception as e:
+                st.error(f"SQL Error: {e}")
+
+        if st.session_state.sql_history:
+            st.markdown("### 📜 Query History")
+            for i, h in enumerate(reversed(st.session_state.sql_history[-10:])):
+                with st.expander(f"{h['time'].strftime('%H:%M:%S')} · {h['rows']} rows · {h['query'][:60]}...", expanded=False):
+                    st.code(h['query'], language='sql')
+                    if st.button("↩️ Re-run", key=f"sql_rerun_{i}"):
+                        st.session_state['sql_input'] = h['query']
+                        st.rerun()
+
+
+# ═══════════════════════════════════════════════════════════
+# TAB 11: SHAP EXPLAINABILITY
+# ═══════════════════════════════════════════════════════════
+with tabs[10]:
+    st.markdown("## 🧠 SHAP — Model Explainability")
+
+    if not SHAP_AVAILABLE:
+        st.markdown('<div class="alert-warning">⚠️ <b>SHAP</b> not installed. Run: <code>pip install shap</code></div>', unsafe_allow_html=True)
+    elif not st.session_state.trained_models:
+        st.markdown('<div class="alert-warning">⚠️ No trained models found. Train a model in the ML Models or AutoML tab first.</div>', unsafe_allow_html=True)
+    else:
+        model_names = list(st.session_state.trained_models.keys())
+        sel_model_name = st.selectbox("🤖 Select Model to Explain", model_names, key="shap_model")
+        model_info = st.session_state.trained_models[sel_model_name]
+
+        if st.button("🧠 Generate SHAP Explanation", use_container_width=True, type="primary", key="shap_run"):
+            try:
+                with st.spinner("Computing SHAP values... (may take 30-60 seconds)"):
+                    mdl = model_info['model']
+                    X_test = model_info['X_test']
+                    features = model_info['features']
+
+                    # Choose explainer based on model type
+                    try:
+                        explainer = shap.TreeExplainer(mdl)
+                        shap_vals = explainer.shap_values(X_test)
+                    except:
+                        explainer = shap.KernelExplainer(mdl.predict, shap.sample(X_test, 50))
+                        shap_vals = explainer.shap_values(shap.sample(X_test, 50))
+
+                    # For multiclass, take first class or average
+                    if isinstance(shap_vals, list):
+                        sv = np.abs(shap_vals[0])
+                    else:
+                        sv = shap_vals
+
+                    st.session_state.shap_values = {'vals': sv, 'data': X_test, 'features': features, 'model': sel_model_name}
+                    st.success("✅ SHAP values computed!")
+
+            except Exception as e:
+                st.error(f"SHAP error: {e}")
+
+        if st.session_state.shap_values and st.session_state.shap_values.get('model') == sel_model_name:
+            sv = st.session_state.shap_values['vals']
+            features = st.session_state.shap_values['features']
+            X_test = st.session_state.shap_values['data']
+
+            shap_tab1, shap_tab2, shap_tab3 = st.tabs(["📊 Feature Importance", "🔍 Sample Explanation", "🌡️ Heatmap"])
+
+            with shap_tab1:
+                mean_abs_shap = np.abs(sv).mean(axis=0) if sv.ndim > 1 else sv
+                fi_df = pd.DataFrame({'Feature': features, 'SHAP Importance': mean_abs_shap})
+                fi_df = fi_df.sort_values('SHAP Importance', ascending=True).tail(20)
+                fig = px.bar(fi_df, x='SHAP Importance', y='Feature', orientation='h',
+                            color='SHAP Importance', color_continuous_scale='Viridis',
+                            title="Mean |SHAP| — Global Feature Importance")
+                fig.update_layout(**plotly_dark_layout(height=500, coloraxis_showscale=False))
+                st.plotly_chart(fig, use_container_width=True)
+
+            with shap_tab2:
+                sample_idx = st.slider("Select Sample Index", 0, min(99, len(X_test)-1), 0, key="shap_sample")
+                sample_sv = sv[sample_idx] if sv.ndim > 1 else sv
+                sample_df = pd.DataFrame({'Feature': features, 'SHAP Value': sample_sv,
+                                         'Feature Value': X_test.iloc[sample_idx].values})
+                sample_df['Direction'] = sample_df['SHAP Value'].apply(lambda x: '▲ Increases prediction' if x > 0 else '▼ Decreases prediction')
+                sample_df = sample_df.reindex(sample_df['SHAP Value'].abs().sort_values(ascending=False).index)
+                colors = ['#43E97B' if v > 0 else '#FF4757' for v in sample_df['SHAP Value']]
+                fig2 = go.Figure(go.Bar(x=sample_df['SHAP Value'], y=sample_df['Feature'],
+                                       orientation='h', marker_color=colors))
+                fig2.update_layout(**plotly_dark_layout(title=f"Sample #{sample_idx} — Waterfall Explanation", height=500))
+                st.plotly_chart(fig2, use_container_width=True)
+                st.dataframe(sample_df[['Feature','Feature Value','SHAP Value','Direction']].reset_index(drop=True),
+                            use_container_width=True, hide_index=True)
+
+            with shap_tab3:
+                top_n = min(10, len(features))
+                top_feats_idx = np.argsort(np.abs(sv).mean(axis=0))[-top_n:][::-1]
+                heat_data = sv[:, top_feats_idx] if sv.ndim > 1 else sv.reshape(1,-1)[:, top_feats_idx]
+                top_feat_names = [features[i] for i in top_feats_idx]
+                fig3 = px.imshow(heat_data.T, x=list(range(len(heat_data))), y=top_feat_names,
+                                color_continuous_scale='RdBu_r', title="SHAP Values Heatmap (samples × features)",
+                                labels={'x': 'Sample Index', 'y': 'Feature', 'color': 'SHAP'})
+                fig3.update_layout(**plotly_dark_layout(height=500))
+                st.plotly_chart(fig3, use_container_width=True)
+
+
+# ═══════════════════════════════════════════════════════════
+# TAB 12: AI ASSISTANT
+# ═══════════════════════════════════════════════════════════
+with tabs[11]:
+    st.markdown("## 💬 AI Data Assistant")
+    st.markdown('<div class="alert-info">🤖 Ask anything about your dataset — patterns, insights, cleaning suggestions, modeling advice.</div>', unsafe_allow_html=True)
+
+    # Build data context summary for the AI
+    nc_cols = df.select_dtypes(include=np.number).columns.tolist()
+    cc_cols = df.select_dtypes(include='object').columns.tolist()
+    data_ctx = (
+        f"Dataset: {df.shape[0]} rows × {df.shape[1]} columns. "
+        f"Numeric cols: {', '.join(nc_cols[:10])}. "
+        f"Categorical cols: {', '.join(cc_cols[:10])}. "
+        f"Missing values: {df.isnull().sum().sum()}. "
+        f"Dtypes: {dict(df.dtypes.astype(str).value_counts())}. "
+        f"Sample stats: {df.describe().to_dict()}. "
+    )
+
+    # Display chat history
+    chat_container = st.container()
+    with chat_container:
+        for msg in st.session_state.chat_history:
+            role_icon = "👤" if msg['role'] == 'user' else "🤖"
+            bg = "rgba(108,99,255,0.08)" if msg['role'] == 'user' else "rgba(67,233,123,0.06)"
+            border = "rgba(108,99,255,0.3)" if msg['role'] == 'user' else "rgba(67,233,123,0.2)"
+            align = "flex-end" if msg['role'] == 'user' else "flex-start"
+            st.markdown(f'<div style="display:flex;justify-content:{align};margin:8px 0">'
+                        f'<div style="background:{bg};border:1px solid {border};border-radius:16px;padding:14px 18px;max-width:85%;font-size:14px;line-height:1.6">'
+                        f'<b>{role_icon} {"You" if msg["role"]=="user" else "AI Assistant"}</b><br>{msg["content"]}'
+                        f'</div></div>', unsafe_allow_html=True)
+
+    # Quick prompt suggestions
+    st.markdown("**💡 Quick questions:**")
+    qcols = st.columns(3)
+    quick_prompts = [
+        "What are the main patterns in this data?",
+        "Which columns have data quality issues?",
+        "What ML model would you recommend for this data?",
+        "What are the most important features to analyze?",
+        "Are there any outliers I should be aware of?",
+        "What transformations should I apply before modeling?"
+    ]
+    for i, qp in enumerate(quick_prompts):
+        with qcols[i % 3]:
+            if st.button(f"💬 {qp[:35]}...", key=f"qp_{i}", use_container_width=True):
+                st.session_state['ai_input_val'] = qp
+
+    user_input = st.text_area("Your question:", key="ai_chat_input",
+                              value=st.session_state.get('ai_input_val', ''),
+                              placeholder="e.g. What cleaning steps should I perform? Which features are most important?",
+                              height=80)
+    if 'ai_input_val' in st.session_state: del st.session_state['ai_input_val']
+
+    c1, c2 = st.columns([4,1])
+    with c1: send_btn = st.button("📤 Send", use_container_width=True, type="primary", key="ai_send")
+    with c2: clear_btn = st.button("🗑️ Clear", use_container_width=True, key="ai_clear")
+
+    if clear_btn:
+        st.session_state.chat_history = []
+        st.rerun()
+
+    if send_btn and user_input.strip():
+        st.session_state.chat_history.append({'role': 'user', 'content': user_input})
+
+        # Build messages for API
+        system_prompt = (
+            "You are an expert data scientist and ML engineer. You are analyzing a dataset for the user. "
+            f"Here is the dataset context: {data_ctx} "
+            "Give concise, actionable advice. Use markdown formatting. "
+            "Be specific — reference actual column names, values, and statistics from the data context."
+        )
+        api_messages = []
+        for msg in st.session_state.chat_history[-10:]:
+            api_messages.append({'role': msg['role'], 'content': msg['content']})
+
+        try:
+            with st.spinner("🤖 AI thinking..."):
+                resp = requests.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={"Content-Type": "application/json"},
+                    json={
+                        "model": "claude-sonnet-4-20250514",
+                        "max_tokens": 1000,
+                        "system": system_prompt,
+                        "messages": api_messages
+                    },
+                    timeout=30
+                )
+                if resp.status_code == 200:
+                    ai_reply = resp.json()['content'][0]['text']
+                else:
+                    ai_reply = f"API Error {resp.status_code}: {resp.text[:200]}"
+        except Exception as e:
+            ai_reply = f"Connection error: {e}. Make sure the app is running with a valid Anthropic API key."
+
+        st.session_state.chat_history.append({'role': 'assistant', 'content': ai_reply})
+        st.rerun()
+
+
+# ═══════════════════════════════════════════════════════════
+# TAB 13: EXPORT
+# ═══════════════════════════════════════════════════════════
+with tabs[12]:
     st.markdown("## 💾 Export Data & Models")
 
     mem = df.memory_usage(deep=True).sum() / 1024**2
@@ -2260,10 +2744,10 @@ with tabs[8]:
 # ─────────────────────────────────────────────────────────────
 st.markdown("""
 <div class="footer">
-    <div class="footer-title">🚀 ML Analytics Pro v3.0 ELITE</div>
+    <div class="footer-title">🚀 ML Analytics Pro v4.0 ULTRA</div>
     <div class="footer-sub">
-        Built with XGBoost · LightGBM · Scikit-learn · Plotly · Streamlit<br>
-        Advanced AI · Production Ready · Real-time Insights
+        XGBoost · LightGBM · Scikit-learn · SHAP · Plotly · Streamlit · Claude AI<br>
+        Statistical Tests · SQL Query · Auto Dtype Fixer · AI Assistant · AutoML
     </div>
 </div>
 """, unsafe_allow_html=True)
