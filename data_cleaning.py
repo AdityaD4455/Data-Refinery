@@ -2775,22 +2775,23 @@ with tabs[11]:
                                 break
                             elif resp.status_code == 429:
                                 if attempt < len(gemini_models) - 1:
-                                    continue  # try next model
-                                ai_reply = "⚠️ **Rate limit hit on all models.** Please wait 1 minute and try again. Free tier limit: 15 req/min."
+                                    continue
+                                ai_reply = "⚠️ **Rate limit hit.** Wait 1 min and retry."
                                 break
                             elif resp.status_code == 403:
                                 ai_reply = "❌ **Invalid API Key.** Check at [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)"
                                 break
                             elif resp.status_code == 400:
-                                ai_reply = f"❌ **Bad Request:** {resp.json().get('error', {}).get('message', resp.text[:200])}"
+                                ai_reply = f"❌ **Bad Request ({api_ver}/{gmodel}):** {resp.json().get('error', {}).get('message', resp.text[:300])}"
                                 break
                             elif resp.status_code == 404:
                                 if attempt < len(gemini_models) - 1:
-                                    continue  # try next model/version
-                                ai_reply = f"❌ **All Gemini models unavailable.** Try Groq provider instead."
+                                    continue
+                                ai_reply = f"❌ **404 on all models.** Last error: {resp.json().get('error',{}).get('message', resp.text[:300])}"
                                 break
                             else:
-                                ai_reply = f"❌ **Gemini Error {resp.status_code}:** {resp.text[:300]}"
+                                err_msg = resp.json().get('error',{}).get('message', resp.text[:300])
+                                ai_reply = f"❌ **Error {resp.status_code} ({api_ver}/{gmodel}):** {err_msg}"
                                 break
 
                     # ── Groq (FREE) ──
