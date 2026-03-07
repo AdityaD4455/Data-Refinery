@@ -1487,37 +1487,37 @@ with tabs[3]:
             score_vals = [float(r) for r in rdf[score_col] if r is not None]
             sc_lo, sc_hi = min(score_vals), max(score_vals)
 
-            legend_items = f'''
-                <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:11px;color:rgba(232,233,240,0.6)">
-                    <div style="display:flex;gap:5px;align-items:center"><div style="width:9px;height:9px;background:#43E97B;border-radius:2px"></div><span>▲ Best in column</span></div>
-                    <div style="display:flex;gap:5px;align-items:center"><div style="width:9px;height:9px;background:#38F9D7;border-radius:2px"></div><span>2nd tier</span></div>
-                    <div style="display:flex;gap:5px;align-items:center"><div style="width:9px;height:9px;background:#F9AB00;border-radius:2px"></div><span>3rd tier</span></div>
-                    <div style="display:flex;gap:5px;align-items:center"><div style="width:9px;height:9px;background:#FF4757;border-radius:2px"></div><span>▼ Worst in column</span></div>
-                    <span style="opacity:0.5;font-style:italic">{score_col} range: {sc_lo:.4f} → {sc_hi:.4f}</span>
-                </div>'''
+            legend_items = (
+                f'<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:11px;color:rgba(232,233,240,0.6)">'
+                f'<div style="display:flex;gap:5px;align-items:center"><div style="width:9px;height:9px;background:#43E97B;border-radius:2px"></div><span>▲ Best in column</span></div>'
+                f'<div style="display:flex;gap:5px;align-items:center"><div style="width:9px;height:9px;background:#38F9D7;border-radius:2px"></div><span>2nd tier</span></div>'
+                f'<div style="display:flex;gap:5px;align-items:center"><div style="width:9px;height:9px;background:#F9AB00;border-radius:2px"></div><span>3rd tier</span></div>'
+                f'<div style="display:flex;gap:5px;align-items:center"><div style="width:9px;height:9px;background:#FF4757;border-radius:2px"></div><span>▼ Worst in column</span></div>'
+                f'<span style="opacity:0.5;font-style:italic">{score_col} range: {sc_lo:.4f} → {sc_hi:.4f}</span>'
+                f'</div>'
+            )
 
-            st.markdown(f"""
-            <div style="border-radius:16px;overflow:hidden;border:1px solid rgba(108,99,255,0.2);margin:16px 0;">
-                <div style="background:linear-gradient(135deg,rgba(108,99,255,0.12),rgba(255,101,132,0.06));padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.06);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
-                    <div>
-                        <div style="font-family:'Space Grotesk',sans-serif;font-size:16px;font-weight:700;color:#E8E9F0">Algorithm Performance Dashboard</div>
-                        <div style="font-size:12px;color:rgba(232,233,240,0.5);margin-top:2px">{len(rdf)} models trained · sorted by best {score_col}</div>
-                    </div>
-                    <div style="display:flex;gap:16px;font-size:11px;color:rgba(232,233,240,0.55);flex-wrap:wrap">
-                        {legend_items}
-                    </div>
-                </div>
-                <div style="overflow-x:auto">
-                <table style="width:100%;border-collapse:collapse;font-family:'Inter',sans-serif;">
-                    <thead style="background:rgba(0,0,0,0.3)"><tr>{header_cells}</tr></thead>
-                    <tbody>{rows_html}</tbody>
-                </table>
-                </div>
-                <div style="background:rgba(0,0,0,0.2);padding:12px 20px;border-top:1px solid rgba(255,255,255,0.04);font-size:11px;color:rgba(232,233,240,0.4)">
-                    💡 Bar height = relative rank within each column independently · ▲ Best / ▼ Worst labels = only the #1 and #last ranked model per metric · CV = 5-fold mean ± std
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+            _metrics_html = (
+                f'<div style="border-radius:16px;overflow:hidden;border:1px solid rgba(108,99,255,0.2);margin:16px 0;">'
+                f'<div style="background:linear-gradient(135deg,rgba(108,99,255,0.12),rgba(255,101,132,0.06));padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.06);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">'
+                f'<div>'
+                f'<div style="font-family:Space Grotesk,sans-serif;font-size:16px;font-weight:700;color:#E8E9F0">Algorithm Performance Dashboard</div>'
+                f'<div style="font-size:12px;color:rgba(232,233,240,0.5);margin-top:2px">{len(rdf)} models trained · sorted by best {score_col}</div>'
+                f'</div>'
+                f'<div style="display:flex;gap:16px;font-size:11px;color:rgba(232,233,240,0.55);flex-wrap:wrap">{legend_items}</div>'
+                f'</div>'
+                f'<div style="overflow-x:auto">'
+                f'<table style="width:100%;border-collapse:collapse;font-family:Inter,sans-serif;">'
+                f'<thead style="background:rgba(0,0,0,0.3)"><tr>{header_cells}</tr></thead>'
+                f'<tbody>{rows_html}</tbody>'
+                f'</table>'
+                f'</div>'
+                f'<div style="background:rgba(0,0,0,0.2);padding:12px 20px;border-top:1px solid rgba(255,255,255,0.04);font-size:11px;color:rgba(232,233,240,0.4)">'
+                f'💡 Bar height = relative rank within each column independently · ▲ Best / ▼ Worst labels = only the #1 and #last ranked model per metric · CV = 5-fold mean ± std'
+                f'</div>'
+                f'</div>'
+            )
+            st.markdown(_metrics_html, unsafe_allow_html=True)
 
             st.markdown(f'<div class="alert-success">🏆 Best Model: <b>{best_m}</b> | {score_col}: {rdf.iloc[0]["Score"]:.4f}</div>', unsafe_allow_html=True)
 
@@ -2106,32 +2106,29 @@ with tabs[7]:
                         <td style="padding:14px 20px;text-align:center;vertical-align:middle">{cv_html}</td>
                     </tr>'''
 
-                st.markdown(f"""
-                <div style="border-radius:16px;overflow:hidden;border:1px solid rgba(108,99,255,0.2);margin:16px 0;">
-                    <div style="background:linear-gradient(135deg,rgba(108,99,255,0.12),rgba(255,101,132,0.06));padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.06)">
-                        <div style="font-family:'Space Grotesk',sans-serif;font-size:16px;font-weight:700;color:#E8E9F0">AutoML Algorithm Leaderboard</div>
-                        <div style="font-size:12px;color:rgba(232,233,240,0.5);margin-top:2px">Sorted by {score_label} · Best model highlighted in green</div>
-                    </div>
-                    <table style="width:100%;border-collapse:collapse;font-family:'Inter',sans-serif;">
-                        <thead style="background:rgba(0,0,0,0.3)">
-                            <tr>
-                                <th style="padding:12px 16px;text-align:center;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#6C63FF;border-bottom:2px solid rgba(108,99,255,0.3)">Rank</th>
-                                <th style="padding:12px 20px;text-align:left;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#6C63FF;border-bottom:2px solid rgba(108,99,255,0.3)">Model</th>
-                                <th style="padding:12px 20px;text-align:left;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#6C63FF;border-bottom:2px solid rgba(108,99,255,0.3)">{score_label} Score</th>
-                                <th style="padding:12px 20px;text-align:center;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#6C63FF;border-bottom:2px solid rgba(108,99,255,0.3)">CV Mean</th>
-                            </tr>
-                        </thead>
-                        <tbody>{rows2_html}</tbody>
-                    </table>
-                    <div style="background:rgba(0,0,0,0.2);padding:14px 20px;border-top:1px solid rgba(255,255,255,0.04);display:flex;gap:24px;flex-wrap:wrap;align-items:center">
-                        <span style="font-size:11px;color:rgba(232,233,240,0.45)">💡 Bars show <b style="color:rgba(232,233,240,0.7)">relative performance</b> — best model always gets full bar regardless of absolute score</span>
-                        <span style="font-size:11px;color:rgba(232,233,240,0.45)">Score range: <b style="color:rgba(232,233,240,0.7)">{sc_min:.4f}</b> → <b style="color:#43E97B">{sc_max:.4f}</b></span>
-                        <div style="display:flex;gap:10px;font-size:11px;color:rgba(232,233,240,0.5)">
-                            <span>🟢 Best</span><span>🩵 Good</span><span>🟡 Fair</span><span>🔴 Weak</span>
-                        </div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+                _automl_html = (
+                    f'<div style="border-radius:16px;overflow:hidden;border:1px solid rgba(108,99,255,0.2);margin:16px 0;">'
+                    f'<div style="background:linear-gradient(135deg,rgba(108,99,255,0.12),rgba(255,101,132,0.06));padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.06)">'
+                    f'<div style="font-family:Space Grotesk,sans-serif;font-size:16px;font-weight:700;color:#E8E9F0">AutoML Algorithm Leaderboard</div>'
+                    f'<div style="font-size:12px;color:rgba(232,233,240,0.5);margin-top:2px">Sorted by {score_label} · Best model highlighted in green</div>'
+                    f'</div>'
+                    f'<table style="width:100%;border-collapse:collapse;font-family:Inter,sans-serif;">'
+                    f'<thead style="background:rgba(0,0,0,0.3)"><tr>'
+                    f'<th style="padding:12px 16px;text-align:center;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#6C63FF;border-bottom:2px solid rgba(108,99,255,0.3)">Rank</th>'
+                    f'<th style="padding:12px 20px;text-align:left;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#6C63FF;border-bottom:2px solid rgba(108,99,255,0.3)">Model</th>'
+                    f'<th style="padding:12px 20px;text-align:left;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#6C63FF;border-bottom:2px solid rgba(108,99,255,0.3)">{score_label} Score</th>'
+                    f'<th style="padding:12px 20px;text-align:center;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#6C63FF;border-bottom:2px solid rgba(108,99,255,0.3)">CV Mean</th>'
+                    f'</tr></thead>'
+                    f'<tbody>{rows2_html}</tbody>'
+                    f'</table>'
+                    f'<div style="background:rgba(0,0,0,0.2);padding:14px 20px;border-top:1px solid rgba(255,255,255,0.04);display:flex;gap:24px;flex-wrap:wrap;align-items:center">'
+                    f'<span style="font-size:11px;color:rgba(232,233,240,0.45)">💡 Bars show <b style="color:rgba(232,233,240,0.7)">relative performance</b> — best model always gets full bar regardless of absolute score</span>'
+                    f'<span style="font-size:11px;color:rgba(232,233,240,0.45)">Score range: <b style="color:rgba(232,233,240,0.7)">{sc_min:.4f}</b> → <b style="color:#43E97B">{sc_max:.4f}</b></span>'
+                    f'<div style="display:flex;gap:10px;font-size:11px;color:rgba(232,233,240,0.5)"><span>🟢 Best</span><span>🩵 Good</span><span>🟡 Fair</span><span>🔴 Weak</span></div>'
+                    f'</div>'
+                    f'</div>'
+                )
+                st.markdown(_automl_html, unsafe_allow_html=True)
                 st.markdown(f'<div class="alert-success">🏆 Best: <b>{best_name}</b> | {score_label}: {best_sc:.4f}</div>', unsafe_allow_html=True)
 
                 # Feature importance
