@@ -1444,15 +1444,15 @@ with tabs[3]:
                                 f'background:rgba(255,255,255,0.07);padding:1px 6px;'
                                 f'border-radius:3px;letter-spacing:0.3px">{lbl_text}</span>'
                                 if lbl_text else '')
-                    return f'''<div style="display:flex;flex-direction:column;gap:6px">
-                        <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
-                            <span style="font-weight:700;font-size:13px;color:#E8E9F0;letter-spacing:-0.3px">{disp}</span>
-                            {lbl_html}
-                        </div>
-                        <div style="background:rgba(255,255,255,0.06);border-radius:3px;height:5px">
-                            <div style="width:{bw}%;background:{b_col};height:5px;border-radius:3px"></div>
-                        </div>
-                    </div>'''
+                    return (f'<div style="display:flex;flex-direction:column;gap:6px">'
+                            f'<div style="display:flex;align-items:center;justify-content:space-between;gap:6px">'
+                            f'<span style="font-weight:700;font-size:13px;color:#E8E9F0;letter-spacing:-0.3px">{disp}</span>'
+                            f'{lbl_html}'
+                            f'</div>'
+                            f'<div style="background:rgba(255,255,255,0.06);border-radius:3px;height:5px">'
+                            f'<div style="width:{bw}%;background:{b_col};height:5px;border-radius:3px"></div>'
+                            f'</div>'
+                            f'</div>')
                 except:
                     return f'<span style="color:#aaa">{val}</span>'
 
@@ -1463,10 +1463,11 @@ with tabs[3]:
                 medal    = medals[i] if i < 3 else f'<span style="color:#666;font-size:12px">#{i+1}</span>'
                 row_bg   = 'rgba(67,233,123,0.04)' if is_best else ('rgba(255,255,255,0.02)' if i % 2 == 0 else 'rgba(0,0,0,0)')
                 border   = 'border-left:3px solid #43E97B;' if is_best else 'border-left:3px solid transparent;'
-                model_td = f'''<td style="padding:14px 18px;min-width:160px">
-                    <div style="font-weight:700;font-size:14px;color:#E8E9F0">{row["Model"]}</div>
-                    {"<div style='margin-top:5px'><span style='background:rgba(67,233,123,0.15);color:#43E97B;font-size:10px;padding:2px 9px;border-radius:20px;font-weight:700;letter-spacing:0.5px'>★ BEST</span></div>" if is_best else ""}
-                </td>'''
+                best_badge = "<div style='margin-top:5px'><span style='background:rgba(67,233,123,0.15);color:#43E97B;font-size:10px;padding:2px 9px;border-radius:20px;font-weight:700;letter-spacing:0.5px'>★ BEST</span></div>" if is_best else ""
+                model_td = (f'<td style="padding:14px 18px;min-width:160px">'
+                            f'<div style="font-weight:700;font-size:14px;color:#E8E9F0">{row["Model"]}</div>'
+                            f'{best_badge}'
+                            f'</td>')
                 cells = f'<td style="padding:14px 16px;text-align:center;font-size:18px">{medal}</td>' + model_td
                 for k in data_keys:
                     val    = row.get(k, None)
