@@ -2756,8 +2756,8 @@ with tabs[11]:
                         gemini_models = [
                             ("v1beta", "gemini-2.0-flash"),
                             ("v1beta", "gemini-2.0-flash-lite"),
-                            ("v1",     "gemini-1.5-flash"),
-                            ("v1",     "gemini-1.5-flash-8b"),
+                            ("v1beta", "gemini-1.5-flash"),
+                            ("v1beta", "gemini-1.5-flash-8b"),
                         ]
                         ai_reply = ""
                         for attempt, (api_ver, gmodel) in enumerate(gemini_models):
