@@ -1941,20 +1941,44 @@ with tabs[7]:
     </div>
     """, unsafe_allow_html=True)
 
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
     with c1:
         aml_tgt = st.selectbox("🎯 Target Variable", df.columns.tolist(), key="aml_tgt")
     with c2:
         aml_feats_k = st.slider("Max features to select", 5, min(50, len(df.columns)-1), min(20, len(df.columns)-1), key="aml_k")
+    with c3:
+        speed_mode = st.selectbox("⚡ Speed Mode", ["⚡ Fast (recommended)", "⚖️ Balanced", "🎯 Accurate (slow)"], key="aml_speed")
 
-    use_aml_cv = st.checkbox("Cross-validation in AutoML", True, key="aml_cv")
+    _speed_cfg = {
+        "⚡ Fast (recommended)": dict(n_est=50,  cv_folds=3, max_rows=5000,  use_ensemble=False, use_knn=False),
+        "⚖️ Balanced":           dict(n_est=100, cv_folds=3, max_rows=10000, use_ensemble=True,  use_knn=False),
+        "🎯 Accurate (slow)":    dict(n_est=200, cv_folds=5, max_rows=None,  use_ensemble=True,  use_knn=True),
+    }
+    cfg = _speed_cfg[speed_mode]
+
+    c1, c2 = st.columns(2)
+    with c1:
+        use_aml_cv = st.checkbox("Cross-validation in AutoML", True, key="aml_cv")
+    with c2:
+        st.markdown(f"""<div style="padding:8px 12px;background:rgba(108,99,255,0.08);border-radius:8px;font-size:12px;color:rgba(232,233,240,0.7);margin-top:4px">
+            🌲 Trees: <b>{cfg['n_est']}</b> &nbsp;|&nbsp; CV folds: <b>{cfg['cv_folds']}</b> &nbsp;|&nbsp;
+            Ensemble: <b>{'Yes' if cfg['use_ensemble'] else 'No'}</b> &nbsp;|&nbsp;
+            Max rows: <b>{cfg['max_rows'] or 'All'}</b>
+        </div>""", unsafe_allow_html=True)
 
     if st.button("🚀 Launch AutoML", use_container_width=True, type="primary", key="aml_btn"):
         avail = [c for c in df.columns if c != aml_tgt]
-        with st.spinner("🤖 AutoML running — this may take a moment..."):
+        with st.spinner("🤖 AutoML running..."):
             try:
-                X, y, enc, t_enc, ptype = prepare_ml_data(df, aml_tgt, avail, use_knn=True)
+                X, y, enc, t_enc, ptype = prepare_ml_data(df, aml_tgt, avail, use_knn=cfg['use_knn'])
                 st.markdown(f'<div class="alert-info">Problem Type: <b>{ptype.upper()}</b> | Samples: {len(X):,}</div>', unsafe_allow_html=True)
+
+                # ── Smart row sampling for large datasets ──
+                if cfg['max_rows'] and len(X) > cfg['max_rows']:
+                    sample_idx = np.random.RandomState(42).choice(len(X), cfg['max_rows'], replace=False)
+                    X = X.iloc[sample_idx].reset_index(drop=True)
+                    y = y[sample_idx] if isinstance(y, np.ndarray) else y.iloc[sample_idx].reset_index(drop=True)
+                    st.markdown(f'<div class="alert-warning">⚡ Sampled {cfg["max_rows"]:,} rows for speed. Use Accurate mode for full data.</div>', unsafe_allow_html=True)
 
                 try:
                     X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, random_state=42,
@@ -1969,24 +1993,28 @@ with tabs[7]:
                 sel_f = [avail[i] for i in fs.get_support(indices=True)]
                 st.markdown(f'<div class="alert-success">✅ Feature selection: {k} features selected from {len(avail)}</div>', unsafe_allow_html=True)
 
+                n_est = cfg['n_est']
                 if ptype == 'classification':
                     aml_models = {
-                        "XGBoost": xgb.XGBClassifier(n_estimators=200, random_state=42, n_jobs=-1, eval_metric='logloss'),
-                        "LightGBM": lgb.LGBMClassifier(n_estimators=200, random_state=42, n_jobs=-1, verbose=-1),
-                        "Random Forest": RandomForestClassifier(n_estimators=200, random_state=42, n_jobs=-1),
-                        "Extra Trees": ExtraTreesClassifier(n_estimators=200, random_state=42, n_jobs=-1),
+                        "XGBoost":      xgb.XGBClassifier(n_estimators=n_est, max_depth=4, learning_rate=0.1, random_state=42, n_jobs=-1, eval_metric='logloss'),
+                        "LightGBM":     lgb.LGBMClassifier(n_estimators=n_est, num_leaves=31, random_state=42, n_jobs=-1, verbose=-1),
+                        "Random Forest":RandomForestClassifier(n_estimators=n_est, max_depth=8, random_state=42, n_jobs=-1),
+                        "Extra Trees":  ExtraTreesClassifier(n_estimators=n_est, max_depth=8, random_state=42, n_jobs=-1),
                     }
                 else:
                     aml_models = {
-                        "XGBoost": xgb.XGBRegressor(n_estimators=200, random_state=42, n_jobs=-1),
-                        "LightGBM": lgb.LGBMRegressor(n_estimators=200, random_state=42, n_jobs=-1, verbose=-1),
-                        "Random Forest": RandomForestRegressor(n_estimators=200, random_state=42, n_jobs=-1),
-                        "Extra Trees": ExtraTreesRegressor(n_estimators=200, random_state=42, n_jobs=-1),
+                        "XGBoost":      xgb.XGBRegressor(n_estimators=n_est, max_depth=4, learning_rate=0.1, random_state=42, n_jobs=-1),
+                        "LightGBM":     lgb.LGBMRegressor(n_estimators=n_est, num_leaves=31, random_state=42, n_jobs=-1, verbose=-1),
+                        "Random Forest":RandomForestRegressor(n_estimators=n_est, max_depth=8, random_state=42, n_jobs=-1),
+                        "Extra Trees":  ExtraTreesRegressor(n_estimators=n_est, max_depth=8, random_state=42, n_jobs=-1),
                     }
 
                 results = []; trained_list = []
                 prog = st.progress(0)
+                status_txt = st.empty()
+                total_steps = len(aml_models) + (1 if cfg['use_ensemble'] else 0)
                 for i, (nm, md) in enumerate(aml_models.items()):
+                    status_txt.markdown(f'<div class="alert-info">⏳ Training <b>{nm}</b> ({i+1}/{len(aml_models)})...</div>', unsafe_allow_html=True)
                     md.fit(Xtr_s, y_tr)
                     yp = md.predict(Xte_s)
                     trained_list.append((nm, md))
@@ -1994,25 +2022,30 @@ with tabs[7]:
                     cv_s = None
                     if use_aml_cv:
                         try:
-                            cv_s = cross_val_score(md, Xtr_s, y_tr, cv=5, n_jobs=-1,
-                                                   scoring='accuracy' if ptype == 'classification' else 'r2').mean()
+                            cv_scores = cross_val_score(md, Xtr_s, y_tr, cv=cfg['cv_folds'], n_jobs=-1,
+                                                        scoring='accuracy' if ptype == 'classification' else 'r2')
+                            cv_s = f"{cv_scores.mean():.4f} ± {cv_scores.std():.4f}"
                         except: pass
                     results.append({'Model': nm, 'Score': sc, 'CV Score': cv_s})
-                    prog.progress((i+1) / (len(aml_models)+1))
+                    prog.progress((i+1) / total_steps)
+                status_txt.empty()
 
-                # Ensemble
-                try:
-                    if ptype == 'classification':
-                        ens = VotingClassifier(estimators=trained_list, voting='soft')
-                    else:
-                        ens = VotingRegressor(estimators=trained_list)
-                    ens.fit(Xtr_s, y_tr)
-                    yp_ens = ens.predict(Xte_s)
-                    ens_sc = accuracy_score(y_te, yp_ens) if ptype == 'classification' else r2_score(y_te, yp_ens)
-                    results.append({'Model': '🎯 Ensemble (Voting)', 'Score': ens_sc, 'CV Score': None})
-                    trained_list.append(('🎯 Ensemble (Voting)', ens))
-                except Exception as e:
-                    st.warning(f"Ensemble failed: {e}")
+                # Ensemble — only in Balanced / Accurate mode
+                if cfg['use_ensemble']:
+                    try:
+                        status_txt.markdown('<div class="alert-info">⏳ Building <b>Ensemble</b>...</div>', unsafe_allow_html=True)
+                        if ptype == 'classification':
+                            ens = VotingClassifier(estimators=trained_list, voting='soft')
+                        else:
+                            ens = VotingRegressor(estimators=trained_list)
+                        ens.fit(Xtr_s, y_tr)
+                        yp_ens = ens.predict(Xte_s)
+                        ens_sc = accuracy_score(y_te, yp_ens) if ptype == 'classification' else r2_score(y_te, yp_ens)
+                        results.append({'Model': '🎯 Ensemble (Voting)', 'Score': ens_sc, 'CV Score': None})
+                        trained_list.append(('🎯 Ensemble (Voting)', ens))
+                        status_txt.empty()
+                    except Exception as e:
+                        st.warning(f"Ensemble failed: {e}")
                 prog.progress(1.0); prog.empty()
 
                 rdf = pd.DataFrame(results).sort_values('Score', ascending=False)
