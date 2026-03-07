@@ -2755,7 +2755,7 @@ with tabs[11]:
                             history_for_gemini[0]['parts'][0]['text'] = system_prompt + "\n\nUser question: " + history_for_gemini[0]['parts'][0]['text']
 
                         resp = requests.post(
-                            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}",
+                            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}",
                             headers={"Content-Type": "application/json"},
                             json={"contents": history_for_gemini,
                                   "generationConfig": {"maxOutputTokens": 1500, "temperature": 0.7}},
@@ -2898,3 +2898,4 @@ st.markdown("""
     </div>
 </div>
 """, unsafe_allow_html=True)
+
