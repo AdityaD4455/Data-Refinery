@@ -2650,6 +2650,28 @@ with tabs[11]:
                 st.session_state['ai_api_key'] = ''
                 st.rerun()
 
+        # Test button — only for Gemini
+        if "Gemini" in st.session_state.get('ai_provider','') and st.session_state.get('ai_api_key',''):
+            if st.button("🔍 Test Key & List Available Models", use_container_width=True, key="test_key_btn"):
+                try:
+                    r = requests.get(
+                        f"https://generativelanguage.googleapis.com/v1beta/models?key={st.session_state['ai_api_key']}",
+                        timeout=10
+                    )
+                    if r.status_code == 200:
+                        models = r.json().get("models", [])
+                        gen_models = [m['name'].replace('models/','') for m in models if 'generateContent' in m.get('supportedGenerationMethods',[])]
+                        st.success(f"✅ Key valid! Available models ({len(gen_models)}):")
+                        st.code('\n'.join(gen_models))
+                    elif r.status_code == 400:
+                        st.error(f"❌ Bad request: {r.json().get('error',{}).get('message','')}")
+                    elif r.status_code == 403:
+                        st.error("❌ Invalid API key or API not enabled.")
+                    else:
+                        st.error(f"❌ Error {r.status_code}: {r.text[:200]}")
+                except Exception as ex:
+                    st.error(f"❌ {ex}")
+
     api_key  = st.session_state.get('ai_api_key', '')
     provider = st.session_state.get('ai_provider', '🆓 Google Gemini (Free)')
 
@@ -2744,7 +2766,7 @@ with tabs[11]:
             try:
                 with st.spinner("🤖 AI is thinking..."):
 
-                    # ── Google Gemini (FREE) — with retry & fallback ──
+                    # ── Google Gemini (FREE) — dynamic model discovery ──
                     if "Gemini" in provider:
                         history_for_gemini = []
                         for m in st.session_state.chat_history[-12:]:
@@ -2753,18 +2775,37 @@ with tabs[11]:
                         if history_for_gemini and history_for_gemini[0]['role'] == 'user':
                             history_for_gemini[0]['parts'][0]['text'] = system_prompt + "\n\nUser question: " + history_for_gemini[0]['parts'][0]['text']
 
-                        gemini_models = [
-                            ("v1beta", "gemini-2.0-flash"),
-                            ("v1beta", "gemini-2.0-flash-lite"),
-                            ("v1beta", "gemini-1.5-flash"),
-                            ("v1beta", "gemini-1.5-flash-8b"),
-                        ]
+                        # Step 1: Fetch available models dynamically from user's key
+                        import time
+                        preferred = ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash", "gemini-1.5-flash-8b", "gemini-pro"]
+                        try:
+                            list_resp = requests.get(
+                                f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}",
+                                timeout=10
+                            )
+                            if list_resp.status_code == 200:
+                                all_models = list_resp.json().get("models", [])
+                                available = []
+                                for m in all_models:
+                                    name = m.get("name","").replace("models/","")
+                                    methods = m.get("supportedGenerationMethods", [])
+                                    if "generateContent" in methods and "flash" in name.lower():
+                                        available.append(name)
+                                # Sort by preference
+                                gemini_models = [p for p in preferred if p in available]
+                                if not gemini_models:
+                                    gemini_models = available[:3] if available else preferred
+                            else:
+                                gemini_models = preferred
+                        except:
+                            gemini_models = preferred
+
                         ai_reply = ""
-                        for attempt, (api_ver, gmodel) in enumerate(gemini_models):
+                        for attempt, gmodel in enumerate(gemini_models):
                             if attempt > 0:
-                                import time; time.sleep(2)
+                                time.sleep(2)
                             resp = requests.post(
-                                f"https://generativelanguage.googleapis.com/{api_ver}/models/{gmodel}:generateContent?key={api_key}",
+                                f"https://generativelanguage.googleapis.com/v1beta/models/{gmodel}:generateContent?key={api_key}",
                                 headers={"Content-Type": "application/json"},
                                 json={"contents": history_for_gemini,
                                       "generationConfig": {"maxOutputTokens": 1500, "temperature": 0.7}},
@@ -2779,19 +2820,20 @@ with tabs[11]:
                                 ai_reply = "⚠️ **Rate limit hit.** Wait 1 min and retry."
                                 break
                             elif resp.status_code == 403:
-                                ai_reply = "❌ **Invalid API Key.** Check at [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)"
-                                break
-                            elif resp.status_code == 400:
-                                ai_reply = f"❌ **Bad Request ({api_ver}/{gmodel}):** {resp.json().get('error', {}).get('message', resp.text[:300])}"
+                                ai_reply = "❌ **Invalid API Key.** Get one at [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)"
                                 break
                             elif resp.status_code == 404:
                                 if attempt < len(gemini_models) - 1:
                                     continue
-                                ai_reply = f"❌ **404 on all models.** Last error: {resp.json().get('error',{}).get('message', resp.text[:300])}"
+                                # Show available models to help debug
+                                avail_str = ', '.join(gemini_models) if gemini_models else 'none found'
+                                ai_reply = f"❌ **404 — No working model found.**\nTried: `{avail_str}`\n\nPlease try **Groq** provider instead (also free)."
+                                break
+                            elif resp.status_code == 400:
+                                ai_reply = f"❌ **Bad Request ({gmodel}):** {resp.json().get('error',{}).get('message', resp.text[:300])}"
                                 break
                             else:
-                                err_msg = resp.json().get('error',{}).get('message', resp.text[:300])
-                                ai_reply = f"❌ **Error {resp.status_code} ({api_ver}/{gmodel}):** {err_msg}"
+                                ai_reply = f"❌ **Error {resp.status_code} ({gmodel}):** {resp.json().get('error',{}).get('message',resp.text[:300])}"
                                 break
 
                     # ── Groq (FREE) ──
