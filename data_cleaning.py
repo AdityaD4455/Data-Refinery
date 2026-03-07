@@ -2598,85 +2598,40 @@ with tabs[10]:
 
 
 # ═══════════════════════════════════════════════════════════
-# TAB 12: AI ASSISTANT  (Google Gemini — FREE)
+# TAB 12: AI ASSISTANT  (Groq — FREE)
 # ═══════════════════════════════════════════════════════════
 with tabs[11]:
     st.markdown("## 💬 AI Data Assistant")
 
-    # ── Provider Selection & API Key Setup ──
-    with st.expander("🔑 Setup — Choose AI Provider (Free Options Available)", expanded=not st.session_state.get('ai_api_key','')):
-        st.markdown("""
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
-            <div style="background:rgba(67,233,123,0.08);border:1px solid rgba(67,233,123,0.25);border-radius:12px;padding:14px">
-                <div style="font-weight:700;color:#43E97B;margin-bottom:6px">🆓 Google Gemini — RECOMMENDED</div>
-                <div style="font-size:12px;color:rgba(232,233,240,0.7)">✅ Completely FREE · 1500 requests/day<br>✅ Very accurate (Gemini 1.5 Flash)<br>✅ Key milti hai: <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:#43E97B">aistudio.google.com</a></div>
-            </div>
-            <div style="background:rgba(108,99,255,0.08);border:1px solid rgba(108,99,255,0.25);border-radius:12px;padding:14px">
-                <div style="font-weight:700;color:#a8a4ff;margin-bottom:6px">🆓 Groq — FASTEST FREE</div>
-                <div style="font-size:12px;color:rgba(232,233,240,0.7)">✅ Free tier · Llama 3.1 70B model<br>✅ Super fast responses<br>✅ Key milti hai: <a href="https://console.groq.com" target="_blank" style="color:#a8a4ff">console.groq.com</a></div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+    # ── API Key Setup ──
+    with st.expander("🔑 Groq API Key Setup (Free)", expanded=not st.session_state.get('ai_api_key','')):
+        st.markdown('<div style="background:rgba(108,99,255,0.08);border:1px solid rgba(108,99,255,0.25);border-radius:12px;padding:14px;margin-bottom:12px">'
+                    '<div style="font-weight:700;color:#a8a4ff;margin-bottom:6px">🆓 Groq — Free & Fast</div>'
+                    '<div style="font-size:13px;color:rgba(232,233,240,0.7)">✅ Completely FREE &nbsp;·&nbsp; Llama 3.3 70B model &nbsp;·&nbsp; Super fast<br>'
+                    '🔗 Key lene ke liye: <a href="https://console.groq.com/keys" target="_blank" style="color:#a8a4ff"><b>console.groq.com/keys</b></a> → Sign up → Create API Key</div>'
+                    '</div>', unsafe_allow_html=True)
 
-        provider = st.selectbox("🤖 Select Provider", ["🆓 Google Gemini (Free)", "🆓 Groq (Free)", "💳 Anthropic Claude (Paid)"],
-                                key="ai_provider", index=0)
-
-        if "Gemini" in provider:
-            placeholder, prefix, label = "AIza...", "AIza", "Google Gemini API Key"
-            help_url = "https://aistudio.google.com/app/apikey"
-        elif "Groq" in provider:
-            placeholder, prefix, label = "gsk_...", "gsk_", "Groq API Key"
-            help_url = "https://console.groq.com/keys"
-        else:
-            placeholder, prefix, label = "sk-ant-...", "sk-ant-", "Anthropic API Key"
-            help_url = "https://console.anthropic.com"
-
-        st.markdown(f'<div class="alert-info">🔗 Get your free key here: <a href="{help_url}" target="_blank" style="color:#a8a4ff"><b>{help_url}</b></a></div>', unsafe_allow_html=True)
-
-        key_input = st.text_input(label, type="password",
+        key_input = st.text_input("Groq API Key", type="password",
                                   value=st.session_state.get('ai_api_key', ''),
-                                  placeholder=placeholder, key="api_key_field")
+                                  placeholder="gsk_...", key="api_key_field")
         c1, c2 = st.columns(2)
         with c1:
             if st.button("💾 Save Key", use_container_width=True, key="save_key_btn"):
                 if key_input and len(key_input) > 10:
                     st.session_state['ai_api_key'] = key_input
-                    st.success("✅ API key saved! You can now start chatting.")
+                    st.success("✅ Key saved!")
                     st.rerun()
                 else:
-                    st.error("❌ Please enter a valid API key")
+                    st.error("❌ Valid key enter karo")
         with c2:
             if st.button("🗑️ Clear Key", use_container_width=True, key="clear_key_btn"):
                 st.session_state['ai_api_key'] = ''
                 st.rerun()
 
-        # Test button — only for Gemini
-        if "Gemini" in st.session_state.get('ai_provider','') and st.session_state.get('ai_api_key',''):
-            if st.button("🔍 Test Key & List Available Models", use_container_width=True, key="test_key_btn"):
-                try:
-                    r = requests.get(
-                        f"https://generativelanguage.googleapis.com/v1beta/models?key={st.session_state['ai_api_key']}",
-                        timeout=10
-                    )
-                    if r.status_code == 200:
-                        models = r.json().get("models", [])
-                        gen_models = [m['name'].replace('models/','') for m in models if 'generateContent' in m.get('supportedGenerationMethods',[])]
-                        st.success(f"✅ Key valid! Available models ({len(gen_models)}):")
-                        st.code('\n'.join(gen_models))
-                    elif r.status_code == 400:
-                        st.error(f"❌ Bad request: {r.json().get('error',{}).get('message','')}")
-                    elif r.status_code == 403:
-                        st.error("❌ Invalid API key or API not enabled.")
-                    else:
-                        st.error(f"❌ Error {r.status_code}: {r.text[:200]}")
-                except Exception as ex:
-                    st.error(f"❌ {ex}")
-
-    api_key  = st.session_state.get('ai_api_key', '')
-    provider = st.session_state.get('ai_provider', '🆓 Google Gemini (Free)')
+    api_key = st.session_state.get('ai_api_key', '')
 
     if not api_key:
-        st.markdown('<div class="alert-warning">⚠️ <b>API key nahi mili.</b> Upar "Setup" section mein apni free key enter karo.<br><br>👉 Google Gemini ke liye: <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:#F9AB00">aistudio.google.com/app/apikey</a> — bilkul free hai!</div>', unsafe_allow_html=True)
+        st.markdown('<div class="alert-warning">⚠️ <b>Groq API key nahi mili.</b> Upar setup section mein key enter karo.<br>🔗 Free key lene ke liye: <a href="https://console.groq.com/keys" target="_blank" style="color:#F9AB00"><b>console.groq.com/keys</b></a></div>', unsafe_allow_html=True)
     else:
         # ── Build rich data context ──
         nc_cols = df.select_dtypes(include=np.number).columns.tolist()
@@ -2765,114 +2720,23 @@ with tabs[11]:
 
             try:
                 with st.spinner("🤖 AI is thinking..."):
-
-                    # ── Google Gemini (FREE) — dynamic model discovery ──
-                    if "Gemini" in provider:
-                        history_for_gemini = []
-                        for m in st.session_state.chat_history[-12:]:
-                            role = "user" if m['role'] == 'user' else "model"
-                            history_for_gemini.append({"role": role, "parts": [{"text": m['content']}]})
-                        if history_for_gemini and history_for_gemini[0]['role'] == 'user':
-                            history_for_gemini[0]['parts'][0]['text'] = system_prompt + "\n\nUser question: " + history_for_gemini[0]['parts'][0]['text']
-
-                        # Step 1: Fetch available models dynamically from user's key
-                        import time
-                        preferred = ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash", "gemini-1.5-flash-8b", "gemini-pro"]
-                        try:
-                            list_resp = requests.get(
-                                f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}",
-                                timeout=10
-                            )
-                            if list_resp.status_code == 200:
-                                all_models = list_resp.json().get("models", [])
-                                available = []
-                                for m in all_models:
-                                    name = m.get("name","").replace("models/","")
-                                    methods = m.get("supportedGenerationMethods", [])
-                                    if "generateContent" in methods and "flash" in name.lower():
-                                        available.append(name)
-                                # Sort by preference
-                                gemini_models = [p for p in preferred if p in available]
-                                if not gemini_models:
-                                    gemini_models = available[:3] if available else preferred
-                            else:
-                                gemini_models = preferred
-                        except:
-                            gemini_models = preferred
-
-                        ai_reply = ""
-                        for attempt, gmodel in enumerate(gemini_models):
-                            if attempt > 0:
-                                time.sleep(2)
-                            resp = requests.post(
-                                f"https://generativelanguage.googleapis.com/v1beta/models/{gmodel}:generateContent?key={api_key}",
-                                headers={"Content-Type": "application/json"},
-                                json={"contents": history_for_gemini,
-                                      "generationConfig": {"maxOutputTokens": 1500, "temperature": 0.7}},
-                                timeout=60
-                            )
-                            if resp.status_code == 200:
-                                ai_reply = resp.json()['candidates'][0]['content']['parts'][0]['text']
-                                break
-                            elif resp.status_code == 429:
-                                if attempt < len(gemini_models) - 1:
-                                    continue
-                                ai_reply = "⚠️ **Rate limit hit.** Wait 1 min and retry."
-                                break
-                            elif resp.status_code == 403:
-                                ai_reply = "❌ **Invalid API Key.** Get one at [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)"
-                                break
-                            elif resp.status_code == 404:
-                                if attempt < len(gemini_models) - 1:
-                                    continue
-                                # Show available models to help debug
-                                avail_str = ', '.join(gemini_models) if gemini_models else 'none found'
-                                ai_reply = f"❌ **404 — No working model found.**\nTried: `{avail_str}`\n\nPlease try **Groq** provider instead (also free)."
-                                break
-                            elif resp.status_code == 400:
-                                ai_reply = f"❌ **Bad Request ({gmodel}):** {resp.json().get('error',{}).get('message', resp.text[:300])}"
-                                break
-                            else:
-                                ai_reply = f"❌ **Error {resp.status_code} ({gmodel}):** {resp.json().get('error',{}).get('message',resp.text[:300])}"
-                                break
-
-                    # ── Groq (FREE) ──
-                    elif "Groq" in provider:
-                        groq_msgs = [{"role": "system", "content": system_prompt}]
-                        for m in st.session_state.chat_history[-12:]:
-                            groq_msgs.append({"role": m['role'], "content": m['content']})
-                        resp = requests.post(
-                            "https://api.groq.com/openai/v1/chat/completions",
-                            headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
-                            json={"model": "llama-3.3-70b-versatile", "messages": groq_msgs, "max_tokens": 1500},
-                            timeout=60
-                        )
-                        if resp.status_code == 200:
-                            ai_reply = resp.json()['choices'][0]['message']['content']
-                        elif resp.status_code == 401:
-                            ai_reply = "❌ **Invalid Groq API Key.** Check at console.groq.com/keys"
-                        elif resp.status_code == 429:
-                            ai_reply = "⚠️ **Rate limit hit.** Wait a moment and retry."
-                        else:
-                            ai_reply = f"❌ **Groq Error {resp.status_code}:** {resp.text[:300]}"
-
-                    # ── Anthropic (Paid) ──
+                    groq_msgs = [{"role": "system", "content": system_prompt}]
+                    for m in st.session_state.chat_history[-12:]:
+                        groq_msgs.append({"role": m['role'], "content": m['content']})
+                    resp = requests.post(
+                        "https://api.groq.com/openai/v1/chat/completions",
+                        headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+                        json={"model": "llama-3.3-70b-versatile", "messages": groq_msgs, "max_tokens": 1500},
+                        timeout=60
+                    )
+                    if resp.status_code == 200:
+                        ai_reply = resp.json()['choices'][0]['message']['content']
+                    elif resp.status_code == 401:
+                        ai_reply = "❌ **Invalid Groq API Key.** Check at [console.groq.com/keys](https://console.groq.com/keys)"
+                    elif resp.status_code == 429:
+                        ai_reply = "⚠️ **Rate limit hit.** Wait a moment and retry."
                     else:
-                        anth_msgs = [{"role": m['role'], "content": m['content']} for m in st.session_state.chat_history[-12:]]
-                        resp = requests.post(
-                            "https://api.anthropic.com/v1/messages",
-                            headers={"Content-Type": "application/json", "x-api-key": api_key, "anthropic-version": "2023-06-01"},
-                            json={"model": "claude-sonnet-4-20250514", "max_tokens": 1500, "system": system_prompt, "messages": anth_msgs},
-                            timeout=60
-                        )
-                        if resp.status_code == 200:
-                            ai_reply = resp.json()['content'][0]['text']
-                        elif resp.status_code == 401:
-                            ai_reply = "❌ **Invalid Anthropic API Key.**"
-                        elif resp.status_code == 429:
-                            ai_reply = "⚠️ **Rate limit hit.** Wait and retry."
-                        else:
-                            ai_reply = f"❌ **Anthropic Error {resp.status_code}:** {resp.text[:300]}"
+                        ai_reply = f"❌ **Groq Error {resp.status_code}:** {resp.text[:300]}"
 
             except requests.exceptions.Timeout:
                 ai_reply = "⏱️ **Request timed out.** Try again."
