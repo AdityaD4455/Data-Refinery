@@ -2581,99 +2581,177 @@ with tabs[10]:
 # ═══════════════════════════════════════════════════════════
 with tabs[11]:
     st.markdown("## 💬 AI Data Assistant")
-    st.markdown('<div class="alert-info">🤖 Ask anything about your dataset — patterns, insights, cleaning suggestions, modeling advice.</div>', unsafe_allow_html=True)
 
-    # Build data context summary for the AI
-    nc_cols = df.select_dtypes(include=np.number).columns.tolist()
-    cc_cols = df.select_dtypes(include='object').columns.tolist()
-    data_ctx = (
-        f"Dataset: {df.shape[0]} rows × {df.shape[1]} columns. "
-        f"Numeric cols: {', '.join(nc_cols[:10])}. "
-        f"Categorical cols: {', '.join(cc_cols[:10])}. "
-        f"Missing values: {df.isnull().sum().sum()}. "
-        f"Dtypes: {dict(df.dtypes.astype(str).value_counts())}. "
-        f"Sample stats: {df.describe().to_dict()}. "
-    )
+    # ── API Key Setup ──
+    with st.expander("🔑 API Key Setup", expanded='ai_api_key' not in st.session_state or not st.session_state.get('ai_api_key','')):
+        st.markdown('<div class="alert-info">Enter your <b>Anthropic API key</b> to use the AI Assistant. Get one at <a href="https://console.anthropic.com" target="_blank" style="color:#a8a4ff">console.anthropic.com</a></div>', unsafe_allow_html=True)
+        api_key_input = st.text_input("Anthropic API Key", type="password",
+                                      value=st.session_state.get('ai_api_key', ''),
+                                      placeholder="sk-ant-api03-...", key="api_key_field")
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("💾 Save Key", use_container_width=True, key="save_key_btn"):
+                if api_key_input.startswith("sk-ant-"):
+                    st.session_state['ai_api_key'] = api_key_input
+                    st.success("✅ API key saved!")
+                    st.rerun()
+                else:
+                    st.error("❌ Invalid key format. Should start with 'sk-ant-'")
+        with c2:
+            if st.button("🗑️ Clear Key", use_container_width=True, key="clear_key_btn"):
+                st.session_state['ai_api_key'] = ''
+                st.rerun()
 
-    # Display chat history
-    chat_container = st.container()
-    with chat_container:
-        for msg in st.session_state.chat_history:
-            role_icon = "👤" if msg['role'] == 'user' else "🤖"
-            bg = "rgba(108,99,255,0.08)" if msg['role'] == 'user' else "rgba(67,233,123,0.06)"
-            border = "rgba(108,99,255,0.3)" if msg['role'] == 'user' else "rgba(67,233,123,0.2)"
-            align = "flex-end" if msg['role'] == 'user' else "flex-start"
-            st.markdown(f'<div style="display:flex;justify-content:{align};margin:8px 0">'
-                        f'<div style="background:{bg};border:1px solid {border};border-radius:16px;padding:14px 18px;max-width:85%;font-size:14px;line-height:1.6">'
-                        f'<b>{role_icon} {"You" if msg["role"]=="user" else "AI Assistant"}</b><br>{msg["content"]}'
-                        f'</div></div>', unsafe_allow_html=True)
+    api_key = st.session_state.get('ai_api_key', '')
 
-    # Quick prompt suggestions
-    st.markdown("**💡 Quick questions:**")
-    qcols = st.columns(3)
-    quick_prompts = [
-        "What are the main patterns in this data?",
-        "Which columns have data quality issues?",
-        "What ML model would you recommend for this data?",
-        "What are the most important features to analyze?",
-        "Are there any outliers I should be aware of?",
-        "What transformations should I apply before modeling?"
-    ]
-    for i, qp in enumerate(quick_prompts):
-        with qcols[i % 3]:
-            if st.button(f"💬 {qp[:35]}...", key=f"qp_{i}", use_container_width=True):
-                st.session_state['ai_input_val'] = qp
-
-    user_input = st.text_area("Your question:", key="ai_chat_input",
-                              value=st.session_state.get('ai_input_val', ''),
-                              placeholder="e.g. What cleaning steps should I perform? Which features are most important?",
-                              height=80)
-    if 'ai_input_val' in st.session_state: del st.session_state['ai_input_val']
-
-    c1, c2 = st.columns([4,1])
-    with c1: send_btn = st.button("📤 Send", use_container_width=True, type="primary", key="ai_send")
-    with c2: clear_btn = st.button("🗑️ Clear", use_container_width=True, key="ai_clear")
-
-    if clear_btn:
-        st.session_state.chat_history = []
-        st.rerun()
-
-    if send_btn and user_input.strip():
-        st.session_state.chat_history.append({'role': 'user', 'content': user_input})
-
-        # Build messages for API
-        system_prompt = (
-            "You are an expert data scientist and ML engineer. You are analyzing a dataset for the user. "
-            f"Here is the dataset context: {data_ctx} "
-            "Give concise, actionable advice. Use markdown formatting. "
-            "Be specific — reference actual column names, values, and statistics from the data context."
-        )
-        api_messages = []
-        for msg in st.session_state.chat_history[-10:]:
-            api_messages.append({'role': msg['role'], 'content': msg['content']})
-
+    if not api_key:
+        st.markdown('<div class="alert-warning">⚠️ Please enter your Anthropic API key above to start chatting.</div>', unsafe_allow_html=True)
+    else:
+        # ── Build rich data context ──
+        nc_cols = df.select_dtypes(include=np.number).columns.tolist()
+        cc_cols = df.select_dtypes(include='object').columns.tolist()
+        miss_cols = df.isnull().sum()
+        miss_cols = miss_cols[miss_cols > 0].to_dict()
         try:
-            with st.spinner("🤖 AI thinking..."):
-                resp = requests.post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers={"Content-Type": "application/json"},
-                    json={
-                        "model": "claude-sonnet-4-20250514",
-                        "max_tokens": 1000,
-                        "system": system_prompt,
-                        "messages": api_messages
-                    },
-                    timeout=30
-                )
+            desc_stats = df.describe().round(3).to_dict()
+        except:
+            desc_stats = {}
+        data_ctx = (
+            f"Dataset shape: {df.shape[0]} rows × {df.shape[1]} columns.\n"
+            f"Numeric columns ({len(nc_cols)}): {', '.join(nc_cols[:15])}.\n"
+            f"Categorical columns ({len(cc_cols)}): {', '.join(cc_cols[:15])}.\n"
+            f"Total missing values: {df.isnull().sum().sum()} "
+            f"({'in cols: ' + str(miss_cols) if miss_cols else 'none'}).\n"
+            f"Column dtypes: {dict(df.dtypes.astype(str))}.\n"
+            f"Descriptive statistics: {desc_stats}.\n"
+            f"Duplicate rows: {df.duplicated().sum()}.\n"
+            f"Trained models: {list(st.session_state.trained_models.keys()) if st.session_state.trained_models else 'None'}.\n"
+        )
+
+        # ── Quick prompt buttons ──
+        st.markdown("**💡 Quick questions:**")
+        qcols = st.columns(3)
+        quick_prompts = [
+            "What are the main patterns in this data?",
+            "Which columns have data quality issues?",
+            "What ML model would you recommend?",
+            "Which features are most important to analyze?",
+            "Are there any outliers I should be aware of?",
+            "What transformations should I apply before modeling?",
+            "Give me a full EDA summary of this dataset.",
+            "How should I handle the missing values?",
+            "Is this data suitable for classification or regression?"
+        ]
+        for i, qp in enumerate(quick_prompts):
+            with qcols[i % 3]:
+                if st.button(qp[:38] + ("…" if len(qp) > 38 else ""), key=f"qp_{i}", use_container_width=True):
+                    st.session_state['ai_prefill'] = qp
+
+        # ── Chat history display ──
+        if st.session_state.chat_history:
+            st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+            for msg in st.session_state.chat_history:
+                if msg['role'] == 'user':
+                    st.markdown(f'<div style="display:flex;justify-content:flex-end;margin:10px 0">'
+                                f'<div style="background:rgba(108,99,255,0.12);border:1px solid rgba(108,99,255,0.3);'
+                                f'border-radius:16px 16px 4px 16px;padding:12px 18px;max-width:80%;font-size:14px">'
+                                f'👤 <b>You</b><br><span style="color:#E8E9F0">{msg["content"]}</span>'
+                                f'</div></div>', unsafe_allow_html=True)
+                else:
+                    st.markdown(f'<div style="display:flex;justify-content:flex-start;margin:10px 0">'
+                                f'<div style="background:rgba(67,233,123,0.06);border:1px solid rgba(67,233,123,0.2);'
+                                f'border-radius:16px 16px 16px 4px;padding:12px 18px;max-width:85%;font-size:14px">'
+                                f'🤖 <b>AI Assistant</b></div></div>', unsafe_allow_html=True)
+                    # Render AI response as proper markdown
+                    st.markdown(msg["content"])
+            st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+
+        # ── Input area ──
+        prefill = st.session_state.pop('ai_prefill', '')
+        user_input = st.text_area(
+            "Ask anything about your data:",
+            value=prefill,
+            placeholder="e.g. What cleaning steps should I do? Which model is best for this data?",
+            height=100, key="ai_chat_input"
+        )
+
+        c1, c2, c3 = st.columns([4, 1, 1])
+        with c1: send_btn = st.button("📤 Send Message", use_container_width=True, type="primary", key="ai_send")
+        with c2: clear_btn = st.button("🗑️ Clear Chat", use_container_width=True, key="ai_clear")
+        with c3: export_btn = st.button("📥 Export Chat", use_container_width=True, key="ai_export")
+
+        if clear_btn:
+            st.session_state.chat_history = []
+            st.rerun()
+
+        if export_btn and st.session_state.chat_history:
+            chat_text = "\n\n".join([
+                f"{'YOU' if m['role']=='user' else 'AI'}: {m['content']}"
+                for m in st.session_state.chat_history
+            ])
+            st.download_button("💾 Download", chat_text,
+                               f"chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                               "text/plain", key="chat_dl")
+
+        if send_btn and user_input.strip():
+            st.session_state.chat_history.append({'role': 'user', 'content': user_input})
+
+            system_prompt = (
+                "You are an expert data scientist and ML engineer embedded inside an ML Analytics app. "
+                "The user has uploaded a dataset. Here is the full context of their data:\n\n"
+                f"{data_ctx}\n\n"
+                "Instructions:\n"
+                "- Be concise and actionable\n"
+                "- Reference actual column names and statistics from the data context\n"
+                "- Use markdown: **bold**, bullet points, code blocks where helpful\n"
+                "- If you suggest code, use Python/pandas syntax\n"
+                "- If asked about models, consider the dataset size and problem type\n"
+            )
+
+            api_messages = [
+                {'role': m['role'], 'content': m['content']}
+                for m in st.session_state.chat_history[-12:]
+            ]
+
+            try:
+                with st.spinner("🤖 AI is thinking..."):
+                    resp = requests.post(
+                        "https://api.anthropic.com/v1/messages",
+                        headers={
+                            "Content-Type": "application/json",
+                            "x-api-key": api_key,
+                            "anthropic-version": "2023-06-01"
+                        },
+                        json={
+                            "model": "claude-sonnet-4-20250514",
+                            "max_tokens": 1500,
+                            "system": system_prompt,
+                            "messages": api_messages
+                        },
+                        timeout=60
+                    )
+
                 if resp.status_code == 200:
                     ai_reply = resp.json()['content'][0]['text']
+                elif resp.status_code == 401:
+                    ai_reply = "❌ **Invalid API Key.** Please check your key in the setup section above."
+                elif resp.status_code == 429:
+                    ai_reply = "⚠️ **Rate limit hit.** Please wait a moment and try again."
+                elif resp.status_code == 400:
+                    err_detail = resp.json().get('error', {}).get('message', resp.text[:200])
+                    ai_reply = f"❌ **Bad Request:** {err_detail}"
                 else:
-                    ai_reply = f"API Error {resp.status_code}: {resp.text[:200]}"
-        except Exception as e:
-            ai_reply = f"Connection error: {e}. Make sure the app is running with a valid Anthropic API key."
+                    ai_reply = f"❌ **API Error {resp.status_code}:** {resp.json().get('error', {}).get('message', resp.text[:300])}"
 
-        st.session_state.chat_history.append({'role': 'assistant', 'content': ai_reply})
-        st.rerun()
+            except requests.exceptions.Timeout:
+                ai_reply = "⏱️ **Request timed out.** The server took too long. Please try again."
+            except requests.exceptions.ConnectionError:
+                ai_reply = "🌐 **Connection error.** Check your internet connection and try again."
+            except Exception as e:
+                ai_reply = f"❌ **Unexpected error:** {str(e)}"
+
+            st.session_state.chat_history.append({'role': 'assistant', 'content': ai_reply})
+            st.rerun()
 
 
 # ═══════════════════════════════════════════════════════════
