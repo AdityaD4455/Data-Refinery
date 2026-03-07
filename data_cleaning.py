@@ -2753,7 +2753,7 @@ with tabs[11]:
                         if history_for_gemini and history_for_gemini[0]['role'] == 'user':
                             history_for_gemini[0]['parts'][0]['text'] = system_prompt + "\n\nUser question: " + history_for_gemini[0]['parts'][0]['text']
 
-                        gemini_models = ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash-8b"]
+                        gemini_models = ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-2.0-flash-8b"]
                         ai_reply = ""
                         for attempt, gmodel in enumerate(gemini_models):
                             if attempt > 0:
@@ -2909,3 +2909,4 @@ st.markdown("""
     </div>
 </div>
 """, unsafe_allow_html=True)
+
