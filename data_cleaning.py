@@ -1623,9 +1623,14 @@ with tabs[3]:
             else:
                 st.markdown("### 📈 Actual vs Predicted")
                 pred_df = pd.DataFrame({'Actual': best_info['y_test'], 'Predicted': best_info['y_pred']})
-                fig2 = px.scatter(pred_df, x='Actual', y='Predicted', opacity=0.5, trendline="ols")
+                fig2 = px.scatter(pred_df, x='Actual', y='Predicted', opacity=0.5)
                 mn = min(pred_df.min().min(), pred_df['Actual'].min())
                 mx = max(pred_df.max().max(), pred_df['Actual'].max())
+                # Manual OLS trendline using numpy (no statsmodels dependency)
+                _m, _b = np.polyfit(pred_df['Actual'], pred_df['Predicted'], 1)
+                _x_trend = np.array([mn, mx])
+                fig2.add_trace(go.Scatter(x=_x_trend, y=_m * _x_trend + _b, mode='lines',
+                                         name='Trend (OLS)', line=dict(color='#FF6B6B', width=2)))
                 fig2.add_trace(go.Scatter(x=[mn, mx], y=[mn, mx], mode='lines', name='Perfect',
                                          line=dict(color='#43E97B', dash='dash', width=2)))
                 fig2.update_layout(**plotly_dark_layout(height=450))
