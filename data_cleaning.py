@@ -477,28 +477,46 @@ def auto_generate_insights(df: pd.DataFrame):
 
 def prepare_ml_data(df, target_col, feature_cols, use_knn=False):
     df_c = df.dropna(subset=[target_col]).copy()
+
+    # Identify numeric vs non-numeric feature cols
+    _numeric_dtypes = [np.float64, np.int64, np.float32, np.int32, np.int8, np.int16,
+                       np.uint8, np.uint16, np.uint32, np.uint64, np.float16]
+
+    def _is_numeric_col(series):
+        return pd.api.types.is_numeric_dtype(series) and not pd.api.types.is_bool_dtype(series)
+
     for col in feature_cols:
         if col not in df_c.columns:
             continue
-        if df_c[col].dtype in [np.float64, np.int64, np.float32, np.int32]:
-            if use_knn:
-                pass  # handled below
-            else:
+        if _is_numeric_col(df_c[col]):
+            if not use_knn:
                 df_c[col] = df_c[col].fillna(df_c[col].median())
         else:
-            df_c[col] = df_c[col].fillna('__missing__')
+            # Convert category dtype to string first
+            if hasattr(df_c[col], 'cat'):
+                df_c[col] = df_c[col].astype(str)
+            df_c[col] = df_c[col].fillna('__missing__').astype(str)
+
     if use_knn:
-        num_feats = [c for c in feature_cols if df_c[c].dtype in [np.float64, np.int64, np.float32, np.int32]]
+        num_feats = [c for c in feature_cols if c in df_c.columns and _is_numeric_col(df_c[c])]
         if num_feats:
             imp = KNNImputer(n_neighbors=5)
             df_c[num_feats] = imp.fit_transform(df_c[num_feats])
+
     X = df_c[feature_cols].copy()
     encoders = {}
     for col in X.columns:
-        if X[col].dtype == 'object':
+        # Encode ALL non-numeric columns: object, category, bool, datetime, etc.
+        if not _is_numeric_col(X[col]):
+            # Convert to string representation first to ensure clean encoding
+            X[col] = X[col].astype(str)
             le = LabelEncoder()
-            X[col] = le.fit_transform(X[col].astype(str))
+            X[col] = le.fit_transform(X[col])
             encoders[col] = le
+        else:
+            # Ensure pure float64 to avoid dtype surprises downstream
+            X[col] = pd.to_numeric(X[col], errors='coerce').fillna(0).astype(np.float64)
+
     y = df_c[target_col].copy()
     t_enc = None
     n_unique = y.nunique()
@@ -1309,7 +1327,7 @@ with tabs[3]:
             if not sel_models:
                 st.warning("Select at least one model.")
 
-            X_arr = X.values
+            X_arr = X.values.astype(np.float64)  # guarantee pure numeric — no string leakage
             if scale_before != "None":
                 sc = StandardScaler() if scale_before == "StandardScaler" else RobustScaler()
                 X_arr = sc.fit_transform(X_arr)
