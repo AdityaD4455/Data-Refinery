@@ -8,7 +8,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import io
-from functools import lru_cache
 from sklearn.preprocessing import (StandardScaler, MinMaxScaler, RobustScaler,
                                    LabelEncoder, QuantileTransformer, PowerTransformer)
 from sklearn.ensemble import (RandomForestClassifier, RandomForestRegressor,
@@ -810,7 +809,6 @@ with tabs[1]:
                             dc[mc] = KNNImputer(n_neighbors=5).fit_transform(dc[[mc]])
                         else:
                             st.warning("KNN only works on numeric columns")
-                            st.stop()
                     elif strat == "Custom value":
                         dc[mc] = dc[mc].fillna(cval)
                     push_history(dc, f"🔧 {strat}: {mc}")
@@ -988,7 +986,7 @@ with tabs[1]:
                 except: pass
                 # Check if it's datetime
                 try:
-                    pd.to_datetime(sample, infer_datetime_format=True)
+                    pd.to_datetime(sample, format='mixed', dayfirst=False)
                     suggestions.append({'Column': col, 'Current': dtype, 'Suggested': 'datetime', 'Reason': 'Date/time values stored as text', 'fix': 'datetime'})
                     continue
                 except: pass
@@ -1016,7 +1014,7 @@ with tabs[1]:
                     if s['Column'] not in cols_to_fix: continue
                     try:
                         if s['fix'] == 'numeric':   dc[s['Column']] = pd.to_numeric(dc[s['Column']], errors='coerce')
-                        elif s['fix'] == 'datetime': dc[s['Column']] = pd.to_datetime(dc[s['Column']], infer_datetime_format=True, errors='coerce')
+                        elif s['fix'] == 'datetime': dc[s['Column']] = pd.to_datetime(dc[s['Column']], format='mixed', dayfirst=False, errors='coerce')
                         elif s['fix'] == 'bool':    dc[s['Column']] = dc[s['Column']].astype(str).str.lower().map({'true':True,'false':False,'yes':True,'no':False,'1':True,'0':False,'y':True,'n':False})
                         elif s['fix'] == 'category': dc[s['Column']] = dc[s['Column']].astype('category')
                         elif s['fix'] == 'int':     dc[s['Column']] = dc[s['Column']].astype('int64')
@@ -1249,404 +1247,402 @@ with tabs[3]:
 
     if not feats:
         st.warning("⚠️ Select at least one feature column.")
-        st.stop()
-
-    with st.expander("⚙️ Advanced Training Options"):
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            use_knn_imp = st.checkbox("KNN Imputation", False, key="knn_imp")
-            use_feat_sel = st.checkbox("Auto Feature Selection (SelectKBest)", False, key="feat_sel")
-        with c2:
-            use_cv = st.checkbox("Cross-validation (5-fold)", True, key="use_cv")
-            test_sz = st.slider("Test Size %", 10, 40, 20, key="test_sz") / 100
-        with c3:
-            scale_before = st.selectbox("Pre-scale Features", ["None", "StandardScaler", "RobustScaler"], key="pre_scale")
-
-    try:
-        X, y, enc, t_enc, ptype = prepare_ml_data(df, target, feats, use_knn=use_knn_imp)
-    except Exception as e:
-        st.error(f"Data preparation error: {e}")
-        st.stop()
-
-    st.markdown(f"""
-    <div class="alert-info">
-        <strong>🔍 Problem Type: {ptype.upper()}</strong> · Target: <code>{target}</code> · 
-        Features: {len(feats)} · Samples: {len(X):,}
-        {f"· Classes: {len(np.unique(y))}" if ptype == 'classification' else f"· Target range: [{float(y.min()):.2f}, {float(y.max()):.2f}]"}
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Model catalog
-    if ptype == 'classification':
-        model_catalog = {
-            "🌲 Random Forest": RandomForestClassifier(n_estimators=150, random_state=42, n_jobs=-1),
-            "⚡ XGBoost": xgb.XGBClassifier(n_estimators=150, random_state=42, n_jobs=-1, eval_metric='logloss'),
-            "💡 LightGBM": lgb.LGBMClassifier(n_estimators=150, random_state=42, n_jobs=-1, verbose=-1),
-            "🌳 Extra Trees": ExtraTreesClassifier(n_estimators=150, random_state=42, n_jobs=-1),
-            "📈 Gradient Boosting": GradientBoostingClassifier(n_estimators=100, random_state=42),
-            "🔗 Logistic Regression": LogisticRegression(max_iter=1000, random_state=42, n_jobs=-1),
-            "🧠 Neural Network": MLPClassifier(hidden_layer_sizes=(128, 64), max_iter=300, random_state=42),
-            "📍 KNN": KNeighborsClassifier(n_neighbors=7, n_jobs=-1),
-            "🔵 SVM (RBF)": SVC(kernel='rbf', probability=True, random_state=42),
-            "📊 Naive Bayes": GaussianNB()
-        }
     else:
-        model_catalog = {
-            "🌲 Random Forest": RandomForestRegressor(n_estimators=150, random_state=42, n_jobs=-1),
-            "⚡ XGBoost": xgb.XGBRegressor(n_estimators=150, random_state=42, n_jobs=-1),
-            "💡 LightGBM": lgb.LGBMRegressor(n_estimators=150, random_state=42, n_jobs=-1, verbose=-1),
-            "🌳 Extra Trees": ExtraTreesRegressor(n_estimators=150, random_state=42, n_jobs=-1),
-            "📈 Gradient Boosting": GradientBoostingRegressor(n_estimators=100, random_state=42),
-            "📏 Linear Regression": LinearRegression(n_jobs=-1),
-            "🔷 Ridge": Ridge(alpha=1.0),
-            "🔹 Lasso": Lasso(alpha=0.1, max_iter=2000),
-            "⚖️ ElasticNet": ElasticNet(alpha=0.1, max_iter=2000),
-            "🧠 Neural Network": MLPRegressor(hidden_layer_sizes=(128, 64), max_iter=300, random_state=42),
-            "🔵 SVR": SVR(kernel='rbf')
-        }
 
-    sel_models = st.multiselect("📋 Select Models to Train", list(model_catalog.keys()),
-                                default=list(model_catalog.keys())[:5], key="sel_models")
+        with st.expander("⚙️ Advanced Training Options"):
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                use_knn_imp = st.checkbox("KNN Imputation", False, key="knn_imp")
+                use_feat_sel = st.checkbox("Auto Feature Selection (SelectKBest)", False, key="feat_sel")
+            with c2:
+                use_cv = st.checkbox("Cross-validation (5-fold)", True, key="use_cv")
+                test_sz = st.slider("Test Size %", 10, 40, 20, key="test_sz") / 100
+            with c3:
+                scale_before = st.selectbox("Pre-scale Features", ["None", "StandardScaler", "RobustScaler"], key="pre_scale")
 
-    if st.button("🚀 Train Selected Models", key="train_btn", use_container_width=True, type="primary"):
-        if not sel_models:
-            st.warning("Select at least one model.")
-            st.stop()
-
-        X_arr = X.values
-        if scale_before != "None":
-            sc = StandardScaler() if scale_before == "StandardScaler" else RobustScaler()
-            X_arr = sc.fit_transform(X_arr)
-
-        if use_feat_sel:
-            k = min(15, X_arr.shape[1])
-            fs = SelectKBest(f_classif if ptype == 'classification' else f_regression, k=k)
-            X_arr = fs.fit_transform(X_arr, y)
-            sel_feat_names = [feats[i] for i in fs.get_support(indices=True)]
-            st.markdown(f'<div class="alert-success">✅ Feature selection: kept {k} of {len(feats)} features</div>', unsafe_allow_html=True)
-        else:
-            sel_feat_names = feats
-
-        strat_arg = y if ptype == 'classification' else None
         try:
-            X_tr, X_te, y_tr, y_te = train_test_split(X_arr, y, test_size=test_sz, random_state=42, stratify=strat_arg)
-        except:
-            X_tr, X_te, y_tr, y_te = train_test_split(X_arr, y, test_size=test_sz, random_state=42)
+            X, y, enc, t_enc, ptype = prepare_ml_data(df, target, feats, use_knn=use_knn_imp)
+        except Exception as e:
+            st.error(f"Data preparation error: {e}")
 
-        results = []
-        prog = st.progress(0)
-        status = st.empty()
-        total = len(sel_models)
+        st.markdown(f"""
+        <div class="alert-info">
+            <strong>🔍 Problem Type: {ptype.upper()}</strong> · Target: <code>{target}</code> · 
+            Features: {len(feats)} · Samples: {len(X):,}
+            {f"· Classes: {len(np.unique(y))}" if ptype == 'classification' else f"· Target range: [{float(y.min()):.2f}, {float(y.max()):.2f}]"}
+        </div>
+        """, unsafe_allow_html=True)
 
-        for idx, mname in enumerate(sel_models):
-            status.markdown(f'<div class="alert-info">⚙️ Training <b>{mname}</b> ({idx+1}/{total})...</div>', unsafe_allow_html=True)
+        # Model catalog
+        if ptype == 'classification':
+            model_catalog = {
+                "🌲 Random Forest": RandomForestClassifier(n_estimators=150, random_state=42, n_jobs=-1),
+                "⚡ XGBoost": xgb.XGBClassifier(n_estimators=150, random_state=42, n_jobs=-1, eval_metric='logloss'),
+                "💡 LightGBM": lgb.LGBMClassifier(n_estimators=150, random_state=42, n_jobs=-1, verbose=-1),
+                "🌳 Extra Trees": ExtraTreesClassifier(n_estimators=150, random_state=42, n_jobs=-1),
+                "📈 Gradient Boosting": GradientBoostingClassifier(n_estimators=100, random_state=42),
+                "🔗 Logistic Regression": LogisticRegression(max_iter=1000, random_state=42, n_jobs=-1),
+                "🧠 Neural Network": MLPClassifier(hidden_layer_sizes=(128, 64), max_iter=300, random_state=42),
+                "📍 KNN": KNeighborsClassifier(n_neighbors=7, n_jobs=-1),
+                "🔵 SVM (RBF)": SVC(kernel='rbf', probability=True, random_state=42),
+                "📊 Naive Bayes": GaussianNB()
+            }
+        else:
+            model_catalog = {
+                "🌲 Random Forest": RandomForestRegressor(n_estimators=150, random_state=42, n_jobs=-1),
+                "⚡ XGBoost": xgb.XGBRegressor(n_estimators=150, random_state=42, n_jobs=-1),
+                "💡 LightGBM": lgb.LGBMRegressor(n_estimators=150, random_state=42, n_jobs=-1, verbose=-1),
+                "🌳 Extra Trees": ExtraTreesRegressor(n_estimators=150, random_state=42, n_jobs=-1),
+                "📈 Gradient Boosting": GradientBoostingRegressor(n_estimators=100, random_state=42),
+                "📏 Linear Regression": LinearRegression(n_jobs=-1),
+                "🔷 Ridge": Ridge(alpha=1.0),
+                "🔹 Lasso": Lasso(alpha=0.1, max_iter=2000),
+                "⚖️ ElasticNet": ElasticNet(alpha=0.1, max_iter=2000),
+                "🧠 Neural Network": MLPRegressor(hidden_layer_sizes=(128, 64), max_iter=300, random_state=42),
+                "🔵 SVR": SVR(kernel='rbf')
+            }
+
+        sel_models = st.multiselect("📋 Select Models to Train", list(model_catalog.keys()),
+                                    default=list(model_catalog.keys())[:5], key="sel_models")
+
+        if st.button("🚀 Train Selected Models", key="train_btn", use_container_width=True, type="primary"):
+            if not sel_models:
+                st.warning("Select at least one model.")
+
+            X_arr = X.values
+            if scale_before != "None":
+                sc = StandardScaler() if scale_before == "StandardScaler" else RobustScaler()
+                X_arr = sc.fit_transform(X_arr)
+
+            if use_feat_sel:
+                k = min(15, X_arr.shape[1])
+                fs = SelectKBest(f_classif if ptype == 'classification' else f_regression, k=k)
+                X_arr = fs.fit_transform(X_arr, y)
+                sel_feat_names = [feats[i] for i in fs.get_support(indices=True)]
+                st.markdown(f'<div class="alert-success">✅ Feature selection: kept {k} of {len(feats)} features</div>', unsafe_allow_html=True)
+            else:
+                sel_feat_names = feats
+
+            strat_arg = y if ptype == 'classification' else None
             try:
-                mdl = model_catalog[mname]
-                mdl.fit(X_tr, y_tr)
-                y_pred = mdl.predict(X_te)
+                X_tr, X_te, y_tr, y_te = train_test_split(X_arr, y, test_size=test_sz, random_state=42, stratify=strat_arg)
+            except:
+                X_tr, X_te, y_tr, y_te = train_test_split(X_arr, y, test_size=test_sz, random_state=42)
 
-                cv_score = None
-                if use_cv:
-                    cv = StratifiedKFold(5, shuffle=True, random_state=42) if ptype == 'classification' else KFold(5, shuffle=True, random_state=42)
-                    scoring = 'accuracy' if ptype == 'classification' else 'r2'
-                    cvs = cross_val_score(mdl, X_tr, y_tr, cv=cv, scoring=scoring, n_jobs=-1)
-                    cv_score = f"{cvs.mean():.4f} ± {cvs.std():.4f}"
+            results = []
+            prog = st.progress(0)
+            status = st.empty()
+            total = len(sel_models)
+
+            for idx, mname in enumerate(sel_models):
+                status.markdown(f'<div class="alert-info">⚙️ Training <b>{mname}</b> ({idx+1}/{total})...</div>', unsafe_allow_html=True)
+                try:
+                    mdl = model_catalog[mname]
+                    mdl.fit(X_tr, y_tr)
+                    y_pred = mdl.predict(X_te)
+
+                    cv_score = None
+                    if use_cv:
+                        cv = StratifiedKFold(5, shuffle=True, random_state=42) if ptype == 'classification' else KFold(5, shuffle=True, random_state=42)
+                        scoring = 'accuracy' if ptype == 'classification' else 'r2'
+                        cvs = cross_val_score(mdl, X_tr, y_tr, cv=cv, scoring=scoring, n_jobs=-1)
+                        cv_score = f"{cvs.mean():.4f} ± {cvs.std():.4f}"
+
+                    if ptype == 'classification':
+                        acc = accuracy_score(y_te, y_pred)
+                        avg = 'binary' if len(np.unique(y)) == 2 else 'weighted'
+                        prec = precision_score(y_te, y_pred, average=avg, zero_division=0)
+                        rec = recall_score(y_te, y_pred, average=avg, zero_division=0)
+                        f1 = f1_score(y_te, y_pred, average=avg, zero_division=0)
+                        try:
+                            pp = mdl.predict_proba(X_te) if hasattr(mdl, 'predict_proba') else None
+                            auc = roc_auc_score(y_te, pp[:, 1] if len(np.unique(y)) == 2 else pp, multi_class='ovr', average='weighted') if pp is not None else None
+                        except:
+                            auc = None
+                        results.append({'Model': mname, 'Accuracy': acc, 'Precision': prec,
+                                        'Recall': rec, 'F1': f1, 'AUC': auc, 'CV Score': cv_score, 'Score': acc})
+                    else:
+                        mse = mean_squared_error(y_te, y_pred)
+                        r2 = r2_score(y_te, y_pred)
+                        mae = mean_absolute_error(y_te, y_pred)
+                        try: mape = mean_absolute_percentage_error(y_te, y_pred)
+                        except: mape = None
+                        results.append({'Model': mname, 'R²': r2, 'RMSE': np.sqrt(mse), 'MAE': mae,
+                                        'MAPE': mape, 'CV Score': cv_score, 'Score': r2})
+
+                    st.session_state.trained_models[mname] = {
+                        'model': mdl, 'features': sel_feat_names, 'target': target,
+                        'type': ptype, 'encoders': enc, 't_enc': t_enc,
+                        'X_test': X_te, 'y_test': y_te, 'y_pred': y_pred
+                    }
+                    if hasattr(mdl, 'feature_importances_'):
+                        st.session_state.feature_importance = {'features': sel_feat_names, 'importance': mdl.feature_importances_}
+
+                except Exception as e:
+                    st.error(f"❌ {mname}: {e}")
+                prog.progress((idx + 1) / total)
+
+            status.empty(); prog.empty()
+
+            if results:
+                rdf = pd.DataFrame(results).sort_values('Score', ascending=False).reset_index(drop=True)
+                best_m = rdf.iloc[0]['Model']
+                st.session_state.best_model = best_m
+
+                st.markdown("### 🏆 Model Comparison")
+
+                # ── Bar Chart ──
+                score_col = 'Accuracy' if ptype == 'classification' else 'R²'
+                fig = px.bar(rdf, x='Model', y=score_col,
+                            color=score_col, color_continuous_scale='Viridis',
+                            text=rdf[score_col].apply(lambda x: f'{float(x):.4f}' if x else 'N/A'),
+                            title=f"Model Performance — {score_col}")
+                fig.update_traces(textposition='outside', textfont_size=11)
+                fig.update_layout(**plotly_dark_layout(height=420, coloraxis_showscale=False))
+                st.plotly_chart(fig, use_container_width=True)
+
+                # ── Beautiful HTML Comparison Table ──
+                st.markdown("### 📊 Detailed Metrics Comparison Table")
 
                 if ptype == 'classification':
-                    acc = accuracy_score(y_te, y_pred)
-                    avg = 'binary' if len(np.unique(y)) == 2 else 'weighted'
-                    prec = precision_score(y_te, y_pred, average=avg, zero_division=0)
-                    rec = recall_score(y_te, y_pred, average=avg, zero_division=0)
-                    f1 = f1_score(y_te, y_pred, average=avg, zero_division=0)
-                    try:
-                        pp = mdl.predict_proba(X_te) if hasattr(mdl, 'predict_proba') else None
-                        auc = roc_auc_score(y_te, pp[:, 1] if len(np.unique(y)) == 2 else pp, multi_class='ovr', average='weighted') if pp is not None else None
-                    except:
-                        auc = None
-                    results.append({'Model': mname, 'Accuracy': acc, 'Precision': prec,
-                                    'Recall': rec, 'F1': f1, 'AUC': auc, 'CV Score': cv_score, 'Score': acc})
+                    headers    = ['#', 'Model', 'Accuracy', 'Precision', 'Recall', 'F1-Score', 'AUC-ROC', 'CV Score (5-fold)']
+                    data_keys  = ['Accuracy', 'Precision', 'Recall', 'F1', 'AUC', 'CV Score']
+                    higher_better = {'Accuracy', 'Precision', 'Recall', 'F1', 'AUC'}
                 else:
-                    mse = mean_squared_error(y_te, y_pred)
-                    r2 = r2_score(y_te, y_pred)
-                    mae = mean_absolute_error(y_te, y_pred)
-                    try: mape = mean_absolute_percentage_error(y_te, y_pred)
-                    except: mape = None
-                    results.append({'Model': mname, 'R²': r2, 'RMSE': np.sqrt(mse), 'MAE': mae,
-                                    'MAPE': mape, 'CV Score': cv_score, 'Score': r2})
+                    headers    = ['#', 'Model', 'R²', 'RMSE', 'MAE', 'MAPE', 'CV Score (5-fold)']
+                    data_keys  = ['R²', 'RMSE', 'MAE', 'MAPE', 'CV Score']
+                    higher_better = {'R²'}
 
-                st.session_state.trained_models[mname] = {
-                    'model': mdl, 'features': sel_feat_names, 'target': target,
-                    'type': ptype, 'encoders': enc, 't_enc': t_enc,
-                    'X_test': X_te, 'y_test': y_te, 'y_pred': y_pred
-                }
-                if hasattr(mdl, 'feature_importances_'):
-                    st.session_state.feature_importance = {'features': sel_feat_names, 'importance': mdl.feature_importances_}
+                # ── Pre-compute per-column stats: sorted ranks, min, max ──
+                # col_rank[col][val_str] = rank_index (0 = best)
+                col_stats  = {}   # {col: {min, max, sorted_vals (best first)}}
+                col_best   = {}   # {col: best_val}  (highest for HB, lowest for LB)
+                col_worst  = {}   # {col: worst_val}
 
-            except Exception as e:
-                st.error(f"❌ {mname}: {e}")
-            prog.progress((idx + 1) / total)
-
-        status.empty(); prog.empty()
-
-        if results:
-            rdf = pd.DataFrame(results).sort_values('Score', ascending=False).reset_index(drop=True)
-            best_m = rdf.iloc[0]['Model']
-            st.session_state.best_model = best_m
-
-            st.markdown("### 🏆 Model Comparison")
-
-            # ── Bar Chart ──
-            score_col = 'Accuracy' if ptype == 'classification' else 'R²'
-            fig = px.bar(rdf, x='Model', y=score_col,
-                        color=score_col, color_continuous_scale='Viridis',
-                        text=rdf[score_col].apply(lambda x: f'{float(x):.4f}' if x else 'N/A'),
-                        title=f"Model Performance — {score_col}")
-            fig.update_traces(textposition='outside', textfont_size=11)
-            fig.update_layout(**plotly_dark_layout(height=420, coloraxis_showscale=False))
-            st.plotly_chart(fig, use_container_width=True)
-
-            # ── Beautiful HTML Comparison Table ──
-            st.markdown("### 📊 Detailed Metrics Comparison Table")
-
-            if ptype == 'classification':
-                headers    = ['#', 'Model', 'Accuracy', 'Precision', 'Recall', 'F1-Score', 'AUC-ROC', 'CV Score (5-fold)']
-                data_keys  = ['Accuracy', 'Precision', 'Recall', 'F1', 'AUC', 'CV Score']
-                higher_better = {'Accuracy', 'Precision', 'Recall', 'F1', 'AUC'}
-            else:
-                headers    = ['#', 'Model', 'R²', 'RMSE', 'MAE', 'MAPE', 'CV Score (5-fold)']
-                data_keys  = ['R²', 'RMSE', 'MAE', 'MAPE', 'CV Score']
-                higher_better = {'R²'}
-
-            # ── Pre-compute per-column stats: sorted ranks, min, max ──
-            # col_rank[col][val_str] = rank_index (0 = best)
-            col_stats  = {}   # {col: {min, max, sorted_vals (best first)}}
-            col_best   = {}   # {col: best_val}  (highest for HB, lowest for LB)
-            col_worst  = {}   # {col: worst_val}
-
-            for k in data_keys:
-                if k == 'CV Score': continue
-                vals = []
-                for _, row in rdf.iterrows():
-                    v = row.get(k, None)
-                    if v is not None and v != 'N/A':
-                        try: vals.append(float(v))
-                        except: pass
-                if not vals: continue
-                is_hb = k in higher_better
-                sorted_vals = sorted(vals, reverse=is_hb)   # best first
-                col_stats[k] = {
-                    'min': min(vals), 'max': max(vals),
-                    'sorted': sorted_vals,
-                    'n': len(sorted_vals)
-                }
-                col_best[k]  = sorted_vals[0]
-                col_worst[k] = sorted_vals[-1]
-
-            def get_rank_idx(val, col_name):
-                """Return 0-based rank index in sorted list (0=best). None if unavailable."""
-                cs = col_stats.get(col_name)
-                if cs is None: return None, 1
-                try:
-                    v = float(val)
-                except:
-                    return None, cs['n']
-                # Use index in the pre-sorted list (best-first)
-                try:
-                    idx = cs['sorted'].index(v)
-                except ValueError:
-                    # float not exact match — find closest
-                    idx = min(range(cs['n']), key=lambda i: abs(cs['sorted'][i] - v))
-                return idx, cs['n']
-
-            def get_rank_pct(val, col_name):
-                """0.0 = best, 1.0 = worst."""
-                idx, n = get_rank_idx(val, col_name)
-                if idx is None or n <= 1: return 0.0 if idx == 0 else None
-                return idx / (n - 1)
-
-            def bar_width(val, col_name):
-                rp = get_rank_pct(val, col_name)
-                if rp is None: return 50
-                return max(5, int((1.0 - rp) * 100))   # rank1=100%, last=5%
-
-            def rank_color(rank_pct):
-                """Color based on rank position: 0=best → green, 1=worst → red."""
-                if rank_pct is None: return '#6C63FF', 'rgba(108,99,255,0.10)'
-                if rank_pct == 0.0:               return '#43E97B', 'rgba(67,233,123,0.13)'
-                elif rank_pct < 0.5:              return '#38F9D7', 'rgba(56,249,215,0.09)'
-                elif rank_pct < 1.0:              return '#F9AB00', 'rgba(249,171,0,0.09)'
-                else:                             return '#FF4757', 'rgba(255,71,87,0.10)'
-
-            def rank_label(val, col_name):
-                """▲ Best label ONLY for rank-1, ▼ Worst ONLY for rank-last. Nothing else."""
-                idx, n = get_rank_idx(val, col_name)
-                if idx is None or n < 2: return '', ''
-                if idx == 0:     return '▲ Best',  '#43E97B'
-                if idx == n - 1: return '▼ Worst', '#FF4757'
-                return '', ''
-
-            def fmt_number(v):
-                if abs(v) >= 1000:  return f'{v:,.1f}'
-                elif abs(v) >= 100: return f'{v:.2f}'
-                elif abs(v) >= 1:   return f'{v:.4f}'
-                else:               return f'{v:.4f}'
-
-            def format_cell(val, col_name):
-                """Unified cell renderer — works for any value range."""
-                if val is None or (isinstance(val, float) and np.isnan(val)):
-                    return '<span style="color:#444;font-size:13px">—</span>'
-
-                # ── CV Score: special treatment ──
-                if col_name == 'CV Score':
-                    try:
-                        parts  = str(val).split('±')
-                        mean_v = float(parts[0].strip())
-                        std_v  = float(parts[1].strip()) if len(parts) > 1 else None
-                        # Color based on absolute quality (CV mean is comparable across runs)
-                        if mean_v >= 0.85:   cv_c = '#43E97B'
-                        elif mean_v >= 0.70: cv_c = '#38F9D7'
-                        elif mean_v >= 0.50: cv_c = '#F9AB00'
-                        else:                cv_c = '#FF4757'
-                        std_str = f'<span style="color:#555;font-size:11px"> ± {std_v:.4f}</span>' if std_v is not None else ''
-                        return (f'<div style="font-family:JetBrains Mono,monospace">'
-                                f'<span style="font-size:14px;font-weight:700;color:{cv_c}">{mean_v:.4f}</span>'
-                                f'{std_str}</div>')
-                    except:
-                        return f'<span style="color:#aaa;font-size:12px">{val}</span>'
-
-                # ── Numeric metric cell ──
-                try:
-                    v        = float(val)
-                    rp       = get_rank_pct(val, col_name)
-                    bw       = bar_width(val, col_name)
-                    b_col, cell_bg = rank_color(rp)
-                    lbl_text, lbl_c = rank_label(val, col_name)
-                    disp     = fmt_number(v)
-                    lbl_html = (f'<span style="font-size:9px;font-weight:800;color:{lbl_c};'
-                                f'background:rgba(255,255,255,0.07);padding:1px 6px;'
-                                f'border-radius:3px;letter-spacing:0.3px">{lbl_text}</span>'
-                                if lbl_text else '')
-                    return (f'<div style="display:flex;flex-direction:column;gap:6px">'
-                            f'<div style="display:flex;align-items:center;justify-content:space-between;gap:6px">'
-                            f'<span style="font-weight:700;font-size:13px;color:#E8E9F0;letter-spacing:-0.3px">{disp}</span>'
-                            f'{lbl_html}'
-                            f'</div>'
-                            f'<div style="background:rgba(255,255,255,0.06);border-radius:3px;height:5px">'
-                            f'<div style="width:{bw}%;background:{b_col};height:5px;border-radius:3px"></div>'
-                            f'</div>'
-                            f'</div>')
-                except:
-                    return f'<span style="color:#aaa">{val}</span>'
-
-            medals   = ['🥇', '🥈', '🥉']
-            rows_html = ''
-            for i, row in rdf.iterrows():
-                is_best  = (i == 0)
-                medal    = medals[i] if i < 3 else f'<span style="color:#666;font-size:12px">#{i+1}</span>'
-                row_bg   = 'rgba(67,233,123,0.04)' if is_best else ('rgba(255,255,255,0.02)' if i % 2 == 0 else 'rgba(0,0,0,0)')
-                border   = 'border-left:3px solid #43E97B;' if is_best else 'border-left:3px solid transparent;'
-                best_badge = "<div style='margin-top:5px'><span style='background:rgba(67,233,123,0.15);color:#43E97B;font-size:10px;padding:2px 9px;border-radius:20px;font-weight:700;letter-spacing:0.5px'>★ BEST</span></div>" if is_best else ""
-                model_td = (f'<td style="padding:14px 18px;min-width:160px">'
-                            f'<div style="font-weight:700;font-size:14px;color:#E8E9F0">{row["Model"]}</div>'
-                            f'{best_badge}'
-                            f'</td>')
-                cells = f'<td style="padding:14px 16px;text-align:center;font-size:18px">{medal}</td>' + model_td
                 for k in data_keys:
-                    val    = row.get(k, None)
-                    rp     = get_rank_pct(val, k) if k != 'CV Score' else None
-                    _, bg  = rank_color(rp) if rp is not None else ('#fff', 'transparent')
-                    cells += f'<td style="padding:11px 16px;background:{bg};min-width:130px;vertical-align:middle">{format_cell(val, k)}</td>'
-                rows_html += f'<tr style="background:{row_bg};{border}">{cells}</tr>'
+                    if k == 'CV Score': continue
+                    vals = []
+                    for _, row in rdf.iterrows():
+                        v = row.get(k, None)
+                        if v is not None and v != 'N/A':
+                            try: vals.append(float(v))
+                            except: pass
+                    if not vals: continue
+                    is_hb = k in higher_better
+                    sorted_vals = sorted(vals, reverse=is_hb)   # best first
+                    col_stats[k] = {
+                        'min': min(vals), 'max': max(vals),
+                        'sorted': sorted_vals,
+                        'n': len(sorted_vals)
+                    }
+                    col_best[k]  = sorted_vals[0]
+                    col_worst[k] = sorted_vals[-1]
 
-            header_cells = ''.join(
-                f'<th style="padding:13px {"14px" if h=="#" else "16px"};text-align:{"center" if h=="#" else "left"};'
-                f'font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#6C63FF;'
-                f'white-space:nowrap;border-bottom:2px solid rgba(108,99,255,0.3)">{h}</th>'
-                for h in headers
-            )
+                def get_rank_idx(val, col_name):
+                    """Return 0-based rank index in sorted list (0=best). None if unavailable."""
+                    cs = col_stats.get(col_name)
+                    if cs is None: return None, 1
+                    try:
+                        v = float(val)
+                    except:
+                        return None, cs['n']
+                    # Use index in the pre-sorted list (best-first)
+                    try:
+                        idx = cs['sorted'].index(v)
+                    except ValueError:
+                        # float not exact match — find closest
+                        idx = min(range(cs['n']), key=lambda i: abs(cs['sorted'][i] - v))
+                    return idx, cs['n']
 
-            # Legend — always show score range for context
-            score_vals = [float(r) for r in rdf[score_col] if r is not None]
-            sc_lo, sc_hi = min(score_vals), max(score_vals)
+                def get_rank_pct(val, col_name):
+                    """0.0 = best, 1.0 = worst."""
+                    idx, n = get_rank_idx(val, col_name)
+                    if idx is None or n <= 1: return 0.0 if idx == 0 else None
+                    return idx / (n - 1)
 
-            legend_items = (
-                f'<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:11px;color:rgba(232,233,240,0.6)">'
-                f'<div style="display:flex;gap:5px;align-items:center"><div style="width:9px;height:9px;background:#43E97B;border-radius:2px"></div><span>▲ Best in column</span></div>'
-                f'<div style="display:flex;gap:5px;align-items:center"><div style="width:9px;height:9px;background:#38F9D7;border-radius:2px"></div><span>2nd tier</span></div>'
-                f'<div style="display:flex;gap:5px;align-items:center"><div style="width:9px;height:9px;background:#F9AB00;border-radius:2px"></div><span>3rd tier</span></div>'
-                f'<div style="display:flex;gap:5px;align-items:center"><div style="width:9px;height:9px;background:#FF4757;border-radius:2px"></div><span>▼ Worst in column</span></div>'
-                f'<span style="opacity:0.5;font-style:italic">{score_col} range: {sc_lo:.4f} → {sc_hi:.4f}</span>'
-                f'</div>'
-            )
+                def bar_width(val, col_name):
+                    rp = get_rank_pct(val, col_name)
+                    if rp is None: return 50
+                    return max(5, int((1.0 - rp) * 100))   # rank1=100%, last=5%
 
-            _metrics_html = (
-                f'<div style="border-radius:16px;overflow:hidden;border:1px solid rgba(108,99,255,0.2);margin:16px 0;">'
-                f'<div style="background:linear-gradient(135deg,rgba(108,99,255,0.12),rgba(255,101,132,0.06));padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.06);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">'
-                f'<div>'
-                f'<div style="font-family:Space Grotesk,sans-serif;font-size:16px;font-weight:700;color:#E8E9F0">Algorithm Performance Dashboard</div>'
-                f'<div style="font-size:12px;color:rgba(232,233,240,0.5);margin-top:2px">{len(rdf)} models trained · sorted by best {score_col}</div>'
-                f'</div>'
-                f'<div style="display:flex;gap:16px;font-size:11px;color:rgba(232,233,240,0.55);flex-wrap:wrap">{legend_items}</div>'
-                f'</div>'
-                f'<div style="overflow-x:auto">'
-                f'<table style="width:100%;border-collapse:collapse;font-family:Inter,sans-serif;">'
-                f'<thead style="background:rgba(0,0,0,0.3)"><tr>{header_cells}</tr></thead>'
-                f'<tbody>{rows_html}</tbody>'
-                f'</table>'
-                f'</div>'
-                f'<div style="background:rgba(0,0,0,0.2);padding:12px 20px;border-top:1px solid rgba(255,255,255,0.04);font-size:11px;color:rgba(232,233,240,0.4)">'
-                f'💡 Bar height = relative rank within each column independently · ▲ Best / ▼ Worst labels = only the #1 and #last ranked model per metric · CV = 5-fold mean ± std'
-                f'</div>'
-                f'</div>'
-            )
-            st.markdown(_metrics_html, unsafe_allow_html=True)
+                def rank_color(rank_pct):
+                    """Color based on rank position: 0=best → green, 1=worst → red."""
+                    if rank_pct is None: return '#6C63FF', 'rgba(108,99,255,0.10)'
+                    if rank_pct == 0.0:               return '#43E97B', 'rgba(67,233,123,0.13)'
+                    elif rank_pct < 0.5:              return '#38F9D7', 'rgba(56,249,215,0.09)'
+                    elif rank_pct < 1.0:              return '#F9AB00', 'rgba(249,171,0,0.09)'
+                    else:                             return '#FF4757', 'rgba(255,71,87,0.10)'
 
-            st.markdown(f'<div class="alert-success">🏆 Best Model: <b>{best_m}</b> | {score_col}: {rdf.iloc[0]["Score"]:.4f}</div>', unsafe_allow_html=True)
+                def rank_label(val, col_name):
+                    """▲ Best label ONLY for rank-1, ▼ Worst ONLY for rank-last. Nothing else."""
+                    idx, n = get_rank_idx(val, col_name)
+                    if idx is None or n < 2: return '', ''
+                    if idx == 0:     return '▲ Best',  '#43E97B'
+                    if idx == n - 1: return '▼ Worst', '#FF4757'
+                    return '', ''
 
-            # Detailed best model analysis
-            best_info = st.session_state.trained_models[best_m]
-            if ptype == 'classification':
-                c1, c2 = st.columns(2)
-                with c1:
-                    st.markdown("### 🎯 Confusion Matrix")
-                    cm = confusion_matrix(best_info['y_test'], best_info['y_pred'])
-                    cnames = t_enc.classes_ if t_enc else [str(i) for i in range(len(cm))]
-                    fig2 = go.Figure(go.Heatmap(z=cm, x=cnames, y=cnames, colorscale='Blues',
-                                               text=cm, texttemplate='%{text}', textfont=dict(size=16)))
-                    fig2.update_layout(**plotly_dark_layout(height=380, xaxis_title="Predicted", yaxis_title="Actual"))
+                def fmt_number(v):
+                    if abs(v) >= 1000:  return f'{v:,.1f}'
+                    elif abs(v) >= 100: return f'{v:.2f}'
+                    elif abs(v) >= 1:   return f'{v:.4f}'
+                    else:               return f'{v:.4f}'
+
+                def format_cell(val, col_name):
+                    """Unified cell renderer — works for any value range."""
+                    if val is None or (isinstance(val, float) and np.isnan(val)):
+                        return '<span style="color:#444;font-size:13px">—</span>'
+
+                    # ── CV Score: special treatment ──
+                    if col_name == 'CV Score':
+                        try:
+                            parts  = str(val).split('±')
+                            mean_v = float(parts[0].strip())
+                            std_v  = float(parts[1].strip()) if len(parts) > 1 else None
+                            # Color based on absolute quality (CV mean is comparable across runs)
+                            if mean_v >= 0.85:   cv_c = '#43E97B'
+                            elif mean_v >= 0.70: cv_c = '#38F9D7'
+                            elif mean_v >= 0.50: cv_c = '#F9AB00'
+                            else:                cv_c = '#FF4757'
+                            std_str = f'<span style="color:#555;font-size:11px"> ± {std_v:.4f}</span>' if std_v is not None else ''
+                            return (f'<div style="font-family:JetBrains Mono,monospace">'
+                                    f'<span style="font-size:14px;font-weight:700;color:{cv_c}">{mean_v:.4f}</span>'
+                                    f'{std_str}</div>')
+                        except:
+                            return f'<span style="color:#aaa;font-size:12px">{val}</span>'
+
+                    # ── Numeric metric cell ──
+                    try:
+                        v        = float(val)
+                        rp       = get_rank_pct(val, col_name)
+                        bw       = bar_width(val, col_name)
+                        b_col, cell_bg = rank_color(rp)
+                        lbl_text, lbl_c = rank_label(val, col_name)
+                        disp     = fmt_number(v)
+                        lbl_html = (f'<span style="font-size:9px;font-weight:800;color:{lbl_c};'
+                                    f'background:rgba(255,255,255,0.07);padding:1px 6px;'
+                                    f'border-radius:3px;letter-spacing:0.3px">{lbl_text}</span>'
+                                    if lbl_text else '')
+                        return (f'<div style="display:flex;flex-direction:column;gap:6px">'
+                                f'<div style="display:flex;align-items:center;justify-content:space-between;gap:6px">'
+                                f'<span style="font-weight:700;font-size:13px;color:#E8E9F0;letter-spacing:-0.3px">{disp}</span>'
+                                f'{lbl_html}'
+                                f'</div>'
+                                f'<div style="background:rgba(255,255,255,0.06);border-radius:3px;height:5px">'
+                                f'<div style="width:{bw}%;background:{b_col};height:5px;border-radius:3px"></div>'
+                                f'</div>'
+                                f'</div>')
+                    except:
+                        return f'<span style="color:#aaa">{val}</span>'
+
+                medals   = ['🥇', '🥈', '🥉']
+                rows_html = ''
+                for i, row in rdf.iterrows():
+                    is_best  = (i == 0)
+                    medal    = medals[i] if i < 3 else f'<span style="color:#666;font-size:12px">#{i+1}</span>'
+                    row_bg   = 'rgba(67,233,123,0.04)' if is_best else ('rgba(255,255,255,0.02)' if i % 2 == 0 else 'rgba(0,0,0,0)')
+                    border   = 'border-left:3px solid #43E97B;' if is_best else 'border-left:3px solid transparent;'
+                    best_badge = "<div style='margin-top:5px'><span style='background:rgba(67,233,123,0.15);color:#43E97B;font-size:10px;padding:2px 9px;border-radius:20px;font-weight:700;letter-spacing:0.5px'>★ BEST</span></div>" if is_best else ""
+                    model_td = (f'<td style="padding:14px 18px;min-width:160px">'
+                                f'<div style="font-weight:700;font-size:14px;color:#E8E9F0">{row["Model"]}</div>'
+                                f'{best_badge}'
+                                f'</td>')
+                    cells = f'<td style="padding:14px 16px;text-align:center;font-size:18px">{medal}</td>' + model_td
+                    for k in data_keys:
+                        val    = row.get(k, None)
+                        rp     = get_rank_pct(val, k) if k != 'CV Score' else None
+                        _, bg  = rank_color(rp) if rp is not None else ('#fff', 'transparent')
+                        cells += f'<td style="padding:11px 16px;background:{bg};min-width:130px;vertical-align:middle">{format_cell(val, k)}</td>'
+                    rows_html += f'<tr style="background:{row_bg};{border}">{cells}</tr>'
+
+                header_cells = ''.join(
+                    f'<th style="padding:13px {"14px" if h=="#" else "16px"};text-align:{"center" if h=="#" else "left"};'
+                    f'font-size:11px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#6C63FF;'
+                    f'white-space:nowrap;border-bottom:2px solid rgba(108,99,255,0.3)">{h}</th>'
+                    for h in headers
+                )
+
+                # Legend — always show score range for context
+                score_vals = [float(r) for r in rdf[score_col] if r is not None]
+                sc_lo, sc_hi = min(score_vals), max(score_vals)
+
+                legend_items = (
+                    f'<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:11px;color:rgba(232,233,240,0.6)">'
+                    f'<div style="display:flex;gap:5px;align-items:center"><div style="width:9px;height:9px;background:#43E97B;border-radius:2px"></div><span>▲ Best in column</span></div>'
+                    f'<div style="display:flex;gap:5px;align-items:center"><div style="width:9px;height:9px;background:#38F9D7;border-radius:2px"></div><span>2nd tier</span></div>'
+                    f'<div style="display:flex;gap:5px;align-items:center"><div style="width:9px;height:9px;background:#F9AB00;border-radius:2px"></div><span>3rd tier</span></div>'
+                    f'<div style="display:flex;gap:5px;align-items:center"><div style="width:9px;height:9px;background:#FF4757;border-radius:2px"></div><span>▼ Worst in column</span></div>'
+                    f'<span style="opacity:0.5;font-style:italic">{score_col} range: {sc_lo:.4f} → {sc_hi:.4f}</span>'
+                    f'</div>'
+                )
+
+                _metrics_html = (
+                    f'<div style="border-radius:16px;overflow:hidden;border:1px solid rgba(108,99,255,0.2);margin:16px 0;">'
+                    f'<div style="background:linear-gradient(135deg,rgba(108,99,255,0.12),rgba(255,101,132,0.06));padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.06);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">'
+                    f'<div>'
+                    f'<div style="font-family:Space Grotesk,sans-serif;font-size:16px;font-weight:700;color:#E8E9F0">Algorithm Performance Dashboard</div>'
+                    f'<div style="font-size:12px;color:rgba(232,233,240,0.5);margin-top:2px">{len(rdf)} models trained · sorted by best {score_col}</div>'
+                    f'</div>'
+                    f'<div style="display:flex;gap:16px;font-size:11px;color:rgba(232,233,240,0.55);flex-wrap:wrap">{legend_items}</div>'
+                    f'</div>'
+                    f'<div style="overflow-x:auto">'
+                    f'<table style="width:100%;border-collapse:collapse;font-family:Inter,sans-serif;">'
+                    f'<thead style="background:rgba(0,0,0,0.3)"><tr>{header_cells}</tr></thead>'
+                    f'<tbody>{rows_html}</tbody>'
+                    f'</table>'
+                    f'</div>'
+                    f'<div style="background:rgba(0,0,0,0.2);padding:12px 20px;border-top:1px solid rgba(255,255,255,0.04);font-size:11px;color:rgba(232,233,240,0.4)">'
+                    f'💡 Bar height = relative rank within each column independently · ▲ Best / ▼ Worst labels = only the #1 and #last ranked model per metric · CV = 5-fold mean ± std'
+                    f'</div>'
+                    f'</div>'
+                )
+                st.markdown(_metrics_html, unsafe_allow_html=True)
+
+                st.markdown(f'<div class="alert-success">🏆 Best Model: <b>{best_m}</b> | {score_col}: {rdf.iloc[0]["Score"]:.4f}</div>', unsafe_allow_html=True)
+
+                # Detailed best model analysis
+                best_info = st.session_state.trained_models[best_m]
+                if ptype == 'classification':
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.markdown("### 🎯 Confusion Matrix")
+                        cm = confusion_matrix(best_info['y_test'], best_info['y_pred'])
+                        cnames = t_enc.classes_ if t_enc else [str(i) for i in range(len(cm))]
+                        fig2 = go.Figure(go.Heatmap(z=cm, x=cnames, y=cnames, colorscale='Blues',
+                                                   text=cm, texttemplate='%{text}', textfont=dict(size=16)))
+                        fig2.update_layout(**plotly_dark_layout(height=380, xaxis_title="Predicted", yaxis_title="Actual"))
+                        st.plotly_chart(fig2, use_container_width=True)
+                    with c2:
+                        st.markdown("### 📋 Classification Report")
+                        tnames = t_enc.classes_ if t_enc else [str(i) for i in np.unique(y)]
+                        rep = classification_report(best_info['y_test'], best_info['y_pred'], target_names=tnames, output_dict=True)
+                        st.dataframe(pd.DataFrame(rep).T.round(3), use_container_width=True, height=380)
+                else:
+                    st.markdown("### 📈 Actual vs Predicted")
+                    pred_df = pd.DataFrame({'Actual': best_info['y_test'], 'Predicted': best_info['y_pred']})
+                    fig2 = px.scatter(pred_df, x='Actual', y='Predicted', opacity=0.5)
+                    mn = min(pred_df.min().min(), pred_df['Actual'].min())
+                    mx = max(pred_df.max().max(), pred_df['Actual'].max())
+                    # Manual OLS trendline using numpy (no statsmodels dependency)
+                    _m, _b = np.polyfit(pred_df['Actual'], pred_df['Predicted'], 1)
+                    _x_trend = np.array([mn, mx])
+                    fig2.add_trace(go.Scatter(x=_x_trend, y=_m * _x_trend + _b, mode='lines',
+                                             name='Trend (OLS)', line=dict(color='#FF6B6B', width=2)))
+                    fig2.add_trace(go.Scatter(x=[mn, mx], y=[mn, mx], mode='lines', name='Perfect',
+                                             line=dict(color='#43E97B', dash='dash', width=2)))
+                    fig2.update_layout(**plotly_dark_layout(height=450))
                     st.plotly_chart(fig2, use_container_width=True)
-                with c2:
-                    st.markdown("### 📋 Classification Report")
-                    tnames = t_enc.classes_ if t_enc else [str(i) for i in np.unique(y)]
-                    rep = classification_report(best_info['y_test'], best_info['y_pred'], target_names=tnames, output_dict=True)
-                    st.dataframe(pd.DataFrame(rep).T.round(3), use_container_width=True, height=380)
-            else:
-                st.markdown("### 📈 Actual vs Predicted")
-                pred_df = pd.DataFrame({'Actual': best_info['y_test'], 'Predicted': best_info['y_pred']})
-                fig2 = px.scatter(pred_df, x='Actual', y='Predicted', opacity=0.5)
-                mn = min(pred_df.min().min(), pred_df['Actual'].min())
-                mx = max(pred_df.max().max(), pred_df['Actual'].max())
-                # Manual OLS trendline using numpy (no statsmodels dependency)
-                _m, _b = np.polyfit(pred_df['Actual'], pred_df['Predicted'], 1)
-                _x_trend = np.array([mn, mx])
-                fig2.add_trace(go.Scatter(x=_x_trend, y=_m * _x_trend + _b, mode='lines',
-                                         name='Trend (OLS)', line=dict(color='#FF6B6B', width=2)))
-                fig2.add_trace(go.Scatter(x=[mn, mx], y=[mn, mx], mode='lines', name='Perfect',
-                                         line=dict(color='#43E97B', dash='dash', width=2)))
-                fig2.update_layout(**plotly_dark_layout(height=450))
-                st.plotly_chart(fig2, use_container_width=True)
 
-            if st.session_state.feature_importance:
-                st.markdown("### 🎯 Feature Importance")
-                fi = st.session_state.feature_importance
-                fi_df = pd.DataFrame({'Feature': fi['features'], 'Importance': fi['importance']}).sort_values('Importance', ascending=True).tail(15)
-                fig3 = px.bar(fi_df, x='Importance', y='Feature', orientation='h',
-                             color='Importance', color_continuous_scale='Viridis', title="Top Features")
-                fig3.update_layout(**plotly_dark_layout(height=450, coloraxis_showscale=False))
-                st.plotly_chart(fig3, use_container_width=True)
+                if st.session_state.feature_importance:
+                    st.markdown("### 🎯 Feature Importance")
+                    fi = st.session_state.feature_importance
+                    fi_df = pd.DataFrame({'Feature': fi['features'], 'Importance': fi['importance']}).sort_values('Importance', ascending=True).tail(15)
+                    fig3 = px.bar(fi_df, x='Importance', y='Feature', orientation='h',
+                                 color='Importance', color_continuous_scale='Viridis', title="Top Features")
+                    fig3.update_layout(**plotly_dark_layout(height=450, coloraxis_showscale=False))
+                    st.plotly_chart(fig3, use_container_width=True)
 
 
-# ═══════════════════════════════════════════════════════════
+    # ═══════════════════════════════════════════════════════════
 # TAB 5: PREDICT
 # ═══════════════════════════════════════════════════════════
 with tabs[4]:
@@ -1654,111 +1650,115 @@ with tabs[4]:
 
     if not st.session_state.trained_models:
         st.markdown('<div class="alert-warning">⚠️ No trained models found. Go to the <b>ML Models</b> tab first.</div>', unsafe_allow_html=True)
-        st.stop()
-
-    mname = st.selectbox("Select Model", list(st.session_state.trained_models.keys()), key="pred_m")
-    minfo = st.session_state.trained_models[mname]
-    mdl = minfo['model']
-    f_cols = minfo['features']
-    p_type = minfo['type']
-    p_encs = minfo['encoders']
-    p_tenc = minfo['t_enc']
-
-    st.markdown(f"""
-    <div class="alert-info">🤖 <b>{mname}</b> · Type: {p_type.title()} · Features: {len(f_cols)}</div>
-    """, unsafe_allow_html=True)
-
-    mode = st.radio("Mode", ["Single Prediction", "Batch Prediction (CSV)"], horizontal=True, key="pred_mode")
-
-    if mode == "Single Prediction":
-        st.markdown("### 📝 Enter Feature Values")
-        input_data = {}
-        cols4 = st.columns(4)
-        for i, col in enumerate(f_cols):
-            if col not in df.columns:
-                continue
-            with cols4[i % 4]:
-                if df[col].dtype in [np.float64, np.int64, np.float32, np.int32]:
-                    mn, mx, mv = float(df[col].min()), float(df[col].max()), float(df[col].mean())
-                    input_data[col] = st.number_input(col, mn, mx, mv, step=(mx-mn)/200, key=f"inp_{col}")
-                else:
-                    uv = sorted(df[col].dropna().unique().tolist())
-                    input_data[col] = st.selectbox(col, uv, key=f"inp_{col}")
-
-        if st.button("🔮 Predict", key="pred_single", use_container_width=True, type="primary"):
-            try:
-                inp_df = pd.DataFrame([input_data])
-                for col in inp_df.columns:
-                    if col in p_encs:
-                        try: inp_df[col] = p_encs[col].transform(inp_df[col].astype(str))
-                        except: inp_df[col] = 0
-                inp_df = inp_df.reindex(columns=f_cols, fill_value=0)
-                pred = mdl.predict(inp_df)[0]
-                if p_type == 'classification' and p_tenc:
-                    pred_show = p_tenc.inverse_transform([int(pred)])[0]
-                else:
-                    pred_show = f"{pred:.4f}" if p_type == 'regression' else pred
-
-                if p_type == 'classification' and hasattr(mdl, 'predict_proba'):
-                    proba = mdl.predict_proba(inp_df)[0]
-                    conf = max(proba) * 100
-                    st.markdown(f"""
-                    <div class="pred-result">
-                        <div style="font-size:16px;color:var(--text-muted);margin-bottom:12px;">PREDICTION RESULT</div>
-                        <div class="pred-value">{pred_show}</div>
-                        <div class="pred-conf">⚡ Confidence: {conf:.2f}%</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    classes = p_tenc.classes_ if p_tenc else [str(i) for i in range(len(proba))]
-                    pf = pd.DataFrame({'Class': classes, 'Probability': proba * 100}).sort_values('Probability', ascending=False)
-                    fig = px.bar(pf, x='Class', y='Probability', color='Probability',
-                                color_continuous_scale='Viridis', text=pf['Probability'].apply(lambda x: f'{x:.2f}%'))
-                    fig.update_traces(textposition='outside')
-                    fig.update_layout(**plotly_dark_layout(height=380, coloraxis_showscale=False))
-                    st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.markdown(f"""
-                    <div class="pred-result">
-                        <div style="font-size:16px;color:var(--text-muted);margin-bottom:12px;">PREDICTION RESULT</div>
-                        <div class="pred-value">{pred_show}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-            except Exception as e:
-                st.error(f"Prediction error: {e}")
-
+        st.markdown("""
+        <div class="alert-info">
+            💡 <b>Tip:</b> You can still <b>download your cleaned data</b> anytime from the <b>💾 Export</b> tab — no model training needed!
+        </div>
+        """, unsafe_allow_html=True)
     else:
-        st.markdown("### 📊 Batch Prediction from CSV")
-        up_pred = st.file_uploader("Upload CSV", type=['csv'], key="batch_pred")
-        if up_pred:
-            bdf = pd.read_csv(up_pred)
-            st.caption(f"Loaded: {len(bdf):,} rows")
-            st.dataframe(bdf.head(10), use_container_width=True)
-            if st.button("🔮 Predict All", use_container_width=True, type="primary", key="batch_btn"):
-                missing = set(f_cols) - set(bdf.columns)
-                if missing:
-                    st.error(f"Missing columns: {missing}")
-                else:
-                    try:
-                        Xb = bdf[f_cols].copy()
-                        for col in Xb.columns:
-                            if col in p_encs:
-                                try: Xb[col] = p_encs[col].transform(Xb[col].astype(str))
-                                except: Xb[col] = 0
-                        preds = mdl.predict(Xb)
-                        if p_type == 'classification' and p_tenc:
-                            preds = p_tenc.inverse_transform(preds.astype(int))
-                        bdf['Prediction'] = preds
-                        if p_type == 'classification' and hasattr(mdl, 'predict_proba'):
-                            pp = mdl.predict_proba(Xb)
-                            bdf['Confidence_%'] = (pp.max(axis=1) * 100).round(2)
-                        st.success(f"✅ Predicted {len(bdf):,} samples!")
-                        st.dataframe(bdf, use_container_width=True)
-                        download_button(bdf, "csv", "📥 Download Predictions", "dl_pred")
-                    except Exception as e:
-                        st.error(f"Error: {e}")
+        mname = st.selectbox("Select Model", list(st.session_state.trained_models.keys()), key="pred_m")
+        minfo = st.session_state.trained_models[mname]
+        mdl = minfo['model']
+        f_cols = minfo['features']
+        p_type = minfo['type']
+        p_encs = minfo['encoders']
+        p_tenc = minfo['t_enc']
+
+        st.markdown(f"""
+        <div class="alert-info">🤖 <b>{mname}</b> · Type: {p_type.title()} · Features: {len(f_cols)}</div>
+        """, unsafe_allow_html=True)
+
+        mode = st.radio("Mode", ["Single Prediction", "Batch Prediction (CSV)"], horizontal=True, key="pred_mode")
+
+        if mode == "Single Prediction":
+            st.markdown("### 📝 Enter Feature Values")
+            input_data = {}
+            cols4 = st.columns(4)
+            for i, col in enumerate(f_cols):
+                if col not in df.columns:
+                    continue
+                with cols4[i % 4]:
+                    if df[col].dtype in [np.float64, np.int64, np.float32, np.int32]:
+                        mn, mx, mv = float(df[col].min()), float(df[col].max()), float(df[col].mean())
+                        input_data[col] = st.number_input(col, mn, mx, mv, step=(mx-mn)/200, key=f"inp_{col}")
+                    else:
+                        uv = sorted(df[col].dropna().unique().tolist())
+                        input_data[col] = st.selectbox(col, uv, key=f"inp_{col}")
+
+            if st.button("🔮 Predict", key="pred_single", use_container_width=True, type="primary"):
+                try:
+                    inp_df = pd.DataFrame([input_data])
+                    for col in inp_df.columns:
+                        if col in p_encs:
+                            try: inp_df[col] = p_encs[col].transform(inp_df[col].astype(str))
+                            except: inp_df[col] = 0
+                    inp_df = inp_df.reindex(columns=f_cols, fill_value=0)
+                    pred = mdl.predict(inp_df)[0]
+                    if p_type == 'classification' and p_tenc:
+                        pred_show = p_tenc.inverse_transform([int(pred)])[0]
+                    else:
+                        pred_show = f"{pred:.4f}" if p_type == 'regression' else pred
+
+                    if p_type == 'classification' and hasattr(mdl, 'predict_proba'):
+                        proba = mdl.predict_proba(inp_df)[0]
+                        conf = max(proba) * 100
+                        st.markdown(f"""
+                        <div class="pred-result">
+                            <div style="font-size:16px;color:var(--text-muted);margin-bottom:12px;">PREDICTION RESULT</div>
+                            <div class="pred-value">{pred_show}</div>
+                            <div class="pred-conf">⚡ Confidence: {conf:.2f}%</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        classes = p_tenc.classes_ if p_tenc else [str(i) for i in range(len(proba))]
+                        pf = pd.DataFrame({'Class': classes, 'Probability': proba * 100}).sort_values('Probability', ascending=False)
+                        fig = px.bar(pf, x='Class', y='Probability', color='Probability',
+                                    color_continuous_scale='Viridis', text=pf['Probability'].apply(lambda x: f'{x:.2f}%'))
+                        fig.update_traces(textposition='outside')
+                        fig.update_layout(**plotly_dark_layout(height=380, coloraxis_showscale=False))
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.markdown(f"""
+                        <div class="pred-result">
+                            <div style="font-size:16px;color:var(--text-muted);margin-bottom:12px;">PREDICTION RESULT</div>
+                            <div class="pred-value">{pred_show}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                except Exception as e:
+                    st.error(f"Prediction error: {e}")
+
+        else:
+            st.markdown("### 📊 Batch Prediction from CSV")
+            up_pred = st.file_uploader("Upload CSV", type=['csv'], key="batch_pred")
+            if up_pred:
+                bdf = pd.read_csv(up_pred)
+                st.caption(f"Loaded: {len(bdf):,} rows")
+                st.dataframe(bdf.head(10), use_container_width=True)
+                if st.button("🔮 Predict All", use_container_width=True, type="primary", key="batch_btn"):
+                    missing = set(f_cols) - set(bdf.columns)
+                    if missing:
+                        st.error(f"Missing columns: {missing}")
+                    else:
+                        try:
+                            Xb = bdf[f_cols].copy()
+                            for col in Xb.columns:
+                                if col in p_encs:
+                                    try: Xb[col] = p_encs[col].transform(Xb[col].astype(str))
+                                    except: Xb[col] = 0
+                            preds = mdl.predict(Xb)
+                            if p_type == 'classification' and p_tenc:
+                                preds = p_tenc.inverse_transform(preds.astype(int))
+                            bdf['Prediction'] = preds
+                            if p_type == 'classification' and hasattr(mdl, 'predict_proba'):
+                                pp = mdl.predict_proba(Xb)
+                                bdf['Confidence_%'] = (pp.max(axis=1) * 100).round(2)
+                            st.success(f"✅ Predicted {len(bdf):,} samples!")
+                            st.dataframe(bdf, use_container_width=True)
+                            download_button(bdf, "csv", "📥 Download Predictions", "dl_pred")
+                        except Exception as e:
+                            st.error(f"Error: {e}")
 
 
-# ═══════════════════════════════════════════════════════════
+    # ═══════════════════════════════════════════════════════════
 # TAB 6: FEATURES
 # ═══════════════════════════════════════════════════════════
 with tabs[5]:
@@ -2763,12 +2763,31 @@ with tabs[12]:
     st.markdown("## 💾 Export Data & Models")
 
     mem = df.memory_usage(deep=True).sum() / 1024**2
+
+    # ── Prominent Clean-Data-Only download banner ──
+    st.markdown("""
+    <div class="glass-card" style="border-color:rgba(67,233,123,0.4);background:rgba(67,233,123,0.05);">
+        <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;">
+            <div style="font-size:36px;">📥</div>
+            <div>
+                <div style="font-family:'Space Grotesk',sans-serif;font-size:18px;font-weight:700;color:#43E97B;">
+                    Download Cleaned Data — No Model Training Required
+                </div>
+                <div style="font-size:13px;color:var(--text-muted);margin-top:4px;">
+                    Export your current (cleaned) dataset at any time. Model training is completely optional.
+                </div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
     st.markdown(f"""
     <div class="glass-card" style="text-align:center;">
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px;">
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:20px;">
             <div><div class="metric-label">ROWS</div><div class="metric-value">{df.shape[0]:,}</div></div>
             <div><div class="metric-label">COLUMNS</div><div class="metric-value">{df.shape[1]:,}</div></div>
             <div><div class="metric-label">MEMORY</div><div class="metric-value">{mem:.1f} MB</div></div>
+            <div><div class="metric-label">MISSING</div><div class="metric-value">{df.isnull().sum().sum():,}</div></div>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -2787,6 +2806,26 @@ with tabs[12]:
                               "application/octet-stream", key="exp_parquet", use_container_width=True)
         except:
             st.button("📦 Parquet (unavailable)", disabled=True, use_container_width=True)
+
+    # ── Column filter for export ──
+    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+    with st.expander("🔧 Export Options — Filter Columns / Rows", expanded=False):
+        exp_cols = st.multiselect("Select columns to export (default = all)", df.columns.tolist(),
+                                   default=df.columns.tolist(), key="exp_col_sel")
+        exp_rows = st.radio("Row filter", ["All rows", "Remove missing rows", "Custom sample %"],
+                            horizontal=True, key="exp_row_filter")
+        exp_df = df[exp_cols] if exp_cols else df
+        if exp_rows == "Remove missing rows":
+            exp_df = exp_df.dropna()
+            st.caption(f"After filter: {len(exp_df):,} rows")
+        elif exp_rows == "Custom sample %":
+            pct = st.slider("Sample %", 10, 100, 80, key="exp_sample_pct")
+            exp_df = exp_df.sample(frac=pct/100, random_state=42)
+            st.caption(f"Sample: {len(exp_df):,} rows")
+        st.markdown("**Download filtered export:**")
+        c1f, c2f = st.columns(2)
+        with c1f: download_button(exp_df, "csv", "📄 Filtered CSV", "exp_filt_csv")
+        with c2f: download_button(exp_df, "excel", "📊 Filtered Excel", "exp_filt_excel")
 
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
