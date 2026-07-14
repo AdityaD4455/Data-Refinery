@@ -28,7 +28,7 @@ from sklearn.metrics import (classification_report, confusion_matrix, accuracy_s
                               mean_squared_error, r2_score, mean_absolute_error,
                               mean_absolute_percentage_error, silhouette_score)
 from sklearn.feature_selection import SelectKBest, f_classif, f_regression
-from sklearn.impute import SimpleImputer, KNNImputer
+from sklearn.impute import KNNImputer
 import xgboost as xgb
 import lightgbm as lgb
 import plotly.express as px
@@ -36,7 +36,6 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from datetime import datetime
 import warnings
-import json
 from scipy import stats
 from scipy.stats import shapiro, gaussian_kde, ttest_ind, chi2_contingency, f_oneway, mannwhitneyu
 import requests
@@ -478,10 +477,6 @@ def auto_generate_insights(df: pd.DataFrame):
 def prepare_ml_data(df, target_col, feature_cols, use_knn=False):
     df_c = df.dropna(subset=[target_col]).copy()
 
-    # Identify numeric vs non-numeric feature cols
-    _numeric_dtypes = [np.float64, np.int64, np.float32, np.int32, np.int8, np.int16,
-                       np.uint8, np.uint16, np.uint32, np.uint64, np.float16]
-
     def _is_numeric_col(series):
         return pd.api.types.is_numeric_dtype(series) and not pd.api.types.is_bool_dtype(series)
 
@@ -521,7 +516,11 @@ def prepare_ml_data(df, target_col, feature_cols, use_knn=False):
     t_enc = None
     n_unique = y.nunique()
     is_int = (y.dropna() % 1 == 0).all() if pd.api.types.is_numeric_dtype(y) else False
-    if y.dtype == 'object' or (n_unique < 25 and (is_int or y.dtype == 'object') and n_unique / len(y) < 0.05):
+    # A numeric column is treated as classification if it's integer-valued with low
+    # cardinality. For very low cardinality (<=10, e.g. binary/small multi-class targets)
+    # the unique/len ratio check is skipped — that ratio unfairly reclassified small
+    # datasets with legitimately few classes (e.g. 5 classes in 60 rows) as regression.
+    if y.dtype == 'object' or (n_unique < 25 and is_int and (n_unique <= 10 or n_unique / len(y) < 0.05)):
         problem_type = 'classification'
     else:
         problem_type = 'regression'
@@ -538,14 +537,14 @@ def download_button(df, fmt, label, key):
         ts = datetime.now().strftime('%Y%m%d_%H%M%S')
         if fmt == "csv":
             data = df.to_csv(index=False)
-            st.download_button(label, data, f"data_{ts}.csv", "text/csv", key=key, use_container_width=True)
+            st.download_button(label, data, f"data_{ts}.csv", "text/csv", key=key, width='stretch')
         elif fmt == "excel":
             buf = io.BytesIO()
             with pd.ExcelWriter(buf, engine='openpyxl') as w:
                 df.to_excel(w, index=False, sheet_name='Data')
-            st.download_button(label, buf.getvalue(), f"data_{ts}.xlsx", "application/vnd.ms-excel", key=key, use_container_width=True)
+            st.download_button(label, buf.getvalue(), f"data_{ts}.xlsx", "application/vnd.ms-excel", key=key, width='stretch')
         elif fmt == "json":
-            st.download_button(label, df.to_json(orient='records', indent=2), f"data_{ts}.json", "application/json", key=key, use_container_width=True)
+            st.download_button(label, df.to_json(orient='records', indent=2), f"data_{ts}.json", "application/json", key=key, width='stretch')
     except Exception as e:
         st.error(f"Download error: {e}")
 
@@ -596,7 +595,7 @@ with st.sidebar:
                 st.session_state.data_quality_score = calculate_data_quality_score(raw)
                 st.rerun()
             else:
-                if st.button("🔄 Replace current data", use_container_width=True):
+                if st.button("🔄 Replace current data", width='stretch'):
                     st.session_state.df = raw
                     push_history(raw, "📁 Dataset replaced")
                     st.session_state.auto_insights = auto_generate_insights(raw)
@@ -616,7 +615,7 @@ with st.sidebar:
         except Exception as e:
             st.error(f"Error: {e}")
 
-    if st.button("🎲 Load Sample Dataset", use_container_width=True):
+    if st.button("🎲 Load Sample Dataset", width='stretch'):
         np.random.seed(42)
         n = 3000
         sample = pd.DataFrame({
@@ -662,7 +661,7 @@ with st.sidebar:
     if st.session_state.history:
         with st.expander(f"📜 History ({len(st.session_state.history)})", expanded=False):
             for i, h in enumerate(reversed(st.session_state.history[-10:])):
-                if st.button(f"↩️ {h['action'][:30]}", key=f"hist_{i}", use_container_width=True):
+                if st.button(f"↩️ {h['action'][:30]}", key=f"hist_{i}", width='stretch'):
                     st.session_state.df = h['df'].copy()
                     st.rerun()
 
@@ -742,7 +741,7 @@ with tabs[0]:
     with c1:
         st.markdown("### 👀 Data Preview")
         n = st.slider("Rows to show", 5, min(200, len(df)), 20, key="prev_rows")
-        st.dataframe(df.head(n), use_container_width=True, height=400)
+        st.dataframe(df.head(n), width='stretch', height=400)
     with c2:
         st.markdown("### 🗂️ Column Summary")
         info = pd.DataFrame({
@@ -752,7 +751,7 @@ with tabs[0]:
             'Missing %': (df.isnull().sum() / len(df) * 100).round(1),
             'Unique': df.nunique(),
         })
-        st.dataframe(info, use_container_width=True, height=400)
+        st.dataframe(info, width='stretch', height=400)
 
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
@@ -764,7 +763,7 @@ with tabs[0]:
             s = nc.describe().T.round(3)
             s['cv%'] = (s['std'] / s['mean'].abs() * 100).round(1)
             s['range'] = s['max'] - s['min']
-            st.dataframe(s, use_container_width=True, height=350)
+            st.dataframe(s, width='stretch', height=350)
     with c2:
         st.markdown("### 🗃️ Data Types")
         tc = df.dtypes.value_counts()
@@ -774,7 +773,7 @@ with tabs[0]:
             textfont=dict(size=13, color='white')
         )])
         fig.update_layout(**plotly_dark_layout(height=350, showlegend=True))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
 
 # ═══════════════════════════════════════════════════════════
@@ -795,7 +794,7 @@ with tabs[1]:
                         text=miss_df['Percent'].apply(lambda x: f'{x:.1f}%'))
             fig.update_traces(textposition='outside')
             fig.update_layout(**plotly_dark_layout(height=350, coloraxis_showscale=False))
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
             c1, c2, c3 = st.columns(3)
             with c1:
@@ -806,7 +805,7 @@ with tabs[1]:
             with c3:
                 cval = st.text_input("Custom value", "", key="miss_cval") if strat == "Custom value" else None
 
-            if st.button("🔧 Apply", key="miss_apply", use_container_width=True):
+            if st.button("🔧 Apply", key="miss_apply", width='stretch'):
                 dc = df.copy()
                 try:
                     if strat == "Drop rows":
@@ -843,10 +842,10 @@ with tabs[1]:
         dup_n = df.duplicated().sum()
         if dup_n > 0:
             st.markdown(f'<div class="alert-warning">⚠️ Found {dup_n:,} duplicate rows ({dup_n/len(df)*100:.2f}%)</div>', unsafe_allow_html=True)
-            st.dataframe(df[df.duplicated(keep=False)].head(10), use_container_width=True)
+            st.dataframe(df[df.duplicated(keep=False)].head(10), width='stretch')
             c1, c2 = st.columns(2)
             with c1:
-                if st.button("🗑️ Remove All Duplicates", key="rm_dups", use_container_width=True):
+                if st.button("🗑️ Remove All Duplicates", key="rm_dups", width='stretch'):
                     dc = df.drop_duplicates()
                     push_history(dc, f"🗑️ Removed {dup_n} duplicates")
                     st.session_state.df = dc
@@ -854,7 +853,7 @@ with tabs[1]:
                     st.rerun()
             with c2:
                 sub = st.multiselect("Remove by subset", df.columns.tolist(), key="dup_sub")
-                if sub and st.button("🗑️ Remove by Subset", key="rm_sub_dups", use_container_width=True):
+                if sub and st.button("🗑️ Remove by Subset", key="rm_sub_dups", width='stretch'):
                     dc = df.drop_duplicates(subset=sub)
                     removed = len(df) - len(dc)
                     push_history(dc, f"🗑️ Removed {removed} duplicates (subset)")
@@ -882,7 +881,7 @@ with tabs[1]:
                 fig.add_trace(go.Box(y=df[oc], name=oc, marker_color='#6C63FF', boxmean=True), row=1, col=1)
                 fig.add_trace(go.Histogram(x=df[oc], name=oc, marker_color='#FF6584', nbinsx=60, opacity=0.8), row=1, col=2)
                 fig.update_layout(**plotly_dark_layout(height=380, showlegend=False))
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
 
             c1, c2, c3, c4 = st.columns(4)
             for col_ref, label, val in [(c1, "Min", df[oc].min()), (c2, "Max", df[oc].max()),
@@ -890,7 +889,7 @@ with tabs[1]:
                 with col_ref:
                     st.metric(label, f"{val:.2f}")
 
-            if st.button("🗑️ Remove Outliers", key="rm_out", use_container_width=True):
+            if st.button("🗑️ Remove Outliers", key="rm_out", width='stretch'):
                 dc = df.copy()
                 try:
                     if "IQR (1.5" in om:
@@ -942,8 +941,8 @@ with tabs[1]:
                 fig = px.bar(x=vc.index, y=vc.values, labels={'x': enc_col, 'y': 'Count'},
                              color=vc.values, color_continuous_scale='Viridis')
                 fig.update_layout(**plotly_dark_layout(height=300, coloraxis_showscale=False))
-                st.plotly_chart(fig, use_container_width=True)
-            if st.button("🏷️ Encode Column", key="enc_btn", use_container_width=True):
+                st.plotly_chart(fig, width='stretch')
+            if st.button("🏷️ Encode Column", key="enc_btn", width='stretch'):
                 dc = df.copy()
                 try:
                     if enc_type == "Label Encoding":
@@ -971,7 +970,7 @@ with tabs[1]:
             with c2:
                 scaler_type = st.selectbox("Scaler", ["StandardScaler", "MinMaxScaler", "RobustScaler",
                                                        "QuantileTransformer", "PowerTransformer"], key="scale_type")
-            if scale_cols and st.button("⚖️ Apply Scaling", key="scale_btn", use_container_width=True):
+            if scale_cols and st.button("⚖️ Apply Scaling", key="scale_btn", width='stretch'):
                 dc = df.copy()
                 try:
                     scalers = {
@@ -1022,10 +1021,10 @@ with tabs[1]:
 
         if suggestions:
             sdf = pd.DataFrame(suggestions)[['Column','Current','Suggested','Reason']]
-            st.dataframe(sdf, use_container_width=True, hide_index=True)
+            st.dataframe(sdf, width='stretch', hide_index=True)
             cols_to_fix = st.multiselect("Select columns to fix", [s['Column'] for s in suggestions],
                                          default=[s['Column'] for s in suggestions], key="dtype_fix_cols")
-            if st.button("🔧 Apply Type Fixes", use_container_width=True, key="dtype_fix_btn"):
+            if st.button("🔧 Apply Type Fixes", width='stretch', key="dtype_fix_btn"):
                 dc = df.copy()
                 fixed = []
                 for s in suggestions:
@@ -1086,7 +1085,7 @@ with tabs[2]:
             fig.add_trace(go.Scatter(x=x_sorted, y=ecdf, mode='lines',
                                      line=dict(color='#6C63FF', width=2), name='ECDF'), row=2, col=2)
             fig.update_layout(**plotly_dark_layout(height=650, showlegend=False))
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
             c1, c2, c3, c4 = st.columns(4)
             with c1:
@@ -1125,14 +1124,14 @@ with tabs[2]:
                 colorbar=dict(title="r")
             ))
             fig.update_layout(**plotly_dark_layout(height=600, title=f"{meth} Correlation Matrix"))
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
             # Top correlations
             pairs = [(corr.columns[i], corr.columns[j], corr.iloc[i,j])
                      for i in range(len(nc)) for j in range(i+1, len(nc))]
             top_pairs = sorted(pairs, key=lambda x: abs(x[2]), reverse=True)[:8]
             st.markdown("### 🔗 Strongest Correlations")
             st.dataframe(pd.DataFrame(top_pairs, columns=['Feature A', 'Feature B', 'Correlation']).round(4),
-                        use_container_width=True)
+                        width='stretch')
 
     elif viz_type == "Scatter Plot":
         nc = df.select_dtypes(include=np.number).columns.tolist()
@@ -1145,7 +1144,7 @@ with tabs[2]:
                             trendline="ols", opacity=0.65, marginal_x="histogram", marginal_y="violin",
                             title=f"{xc} vs {yc}")
             fig.update_layout(**plotly_dark_layout(height=600))
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
             corr_val = df[[xc, yc]].corr().iloc[0, 1]
             st.metric("Pearson Correlation", f"{corr_val:.4f}", f"{'Strong' if abs(corr_val) > 0.7 else 'Moderate' if abs(corr_val) > 0.4 else 'Weak'} correlation")
 
@@ -1172,7 +1171,7 @@ with tabs[2]:
                     fig.add_trace(go.Violin(y=gdata, name=name, box_visible=True,
                                            fillcolor=colors[i % len(colors)], opacity=0.75, line_color='white'))
             fig.update_layout(**plotly_dark_layout(height=500))
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
     elif viz_type == "3D Scatter":
         nc = df.select_dtypes(include=np.number).columns.tolist()
@@ -1190,7 +1189,7 @@ with tabs[2]:
                 yaxis=dict(backgroundcolor='rgba(0,0,0,0)', gridcolor='rgba(255,255,255,0.08)'),
                 zaxis=dict(backgroundcolor='rgba(0,0,0,0)', gridcolor='rgba(255,255,255,0.08)')),
                 paper_bgcolor='rgba(0,0,0,0)', font=dict(color='#E8E9F0'))
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
     elif viz_type == "Categorical Analysis":
         cc = df.select_dtypes(include='object').columns.tolist()
@@ -1208,7 +1207,7 @@ with tabs[2]:
                 fig = px.bar(x=agg.index, y=agg.values, color=agg.values, color_continuous_scale='Plasma',
                             labels={'x': cat_col, 'y': f'Mean {num_col}'}, title=f"Mean {num_col} by {cat_col}")
             fig.update_layout(**plotly_dark_layout(height=450, coloraxis_showscale=False))
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
     elif viz_type == "Time Series / Line":
         date_cols = [c for c in df.columns if df[c].dtype in ['datetime64[ns]'] or 'date' in c.lower() or 'time' in c.lower()]
@@ -1225,7 +1224,7 @@ with tabs[2]:
                     fig.add_trace(go.Scatter(x=xdata, y=df[yc], mode='lines',
                                             name=yc, line=dict(color=clrs[i % len(clrs)], width=2)))
                 fig.update_layout(**plotly_dark_layout(height=500, title="Time Series"))
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
 
     elif viz_type == "Pair Plot Heatmap":
         nc = df.select_dtypes(include=np.number).columns.tolist()
@@ -1246,7 +1245,7 @@ with tabs[2]:
                                                     showlegend=False), row=i+1, col=j+1)
                 fig.update_layout(**plotly_dark_layout(height=min(800, 200 * len(sel)),
                                                        title="Pair Plot Matrix"))
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
 
 
 # ═══════════════════════════════════════════════════════════
@@ -1282,6 +1281,7 @@ with tabs[3]:
             X, y, enc, t_enc, ptype = prepare_ml_data(df, target, feats, use_knn=use_knn_imp)
         except Exception as e:
             st.error(f"Data preparation error: {e}")
+            st.stop()
 
         st.markdown(f"""
         <div class="alert-info">
@@ -1317,13 +1317,14 @@ with tabs[3]:
                 "🔹 Lasso": Lasso(alpha=0.1, max_iter=2000),
                 "⚖️ ElasticNet": ElasticNet(alpha=0.1, max_iter=2000),
                 "🧠 Neural Network": MLPRegressor(hidden_layer_sizes=(128, 64), max_iter=300, random_state=42),
+                "📍 KNN": KNeighborsRegressor(n_neighbors=7, n_jobs=-1),
                 "🔵 SVR": SVR(kernel='rbf')
             }
 
         sel_models = st.multiselect("📋 Select Models to Train", list(model_catalog.keys()),
                                     default=list(model_catalog.keys())[:5], key="sel_models")
 
-        if st.button("🚀 Train Selected Models", key="train_btn", use_container_width=True, type="primary"):
+        if st.button("🚀 Train Selected Models", key="train_btn", width='stretch', type="primary"):
             if not sel_models:
                 st.warning("Select at least one model.")
 
@@ -1417,7 +1418,7 @@ with tabs[3]:
                             title=f"Model Performance — {score_col}")
                 fig.update_traces(textposition='outside', textfont_size=11)
                 fig.update_layout(**plotly_dark_layout(height=420, coloraxis_showscale=False))
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
 
                 # ── Beautiful HTML Comparison Table ──
                 st.markdown("### 📊 Detailed Metrics Comparison Table")
@@ -1628,12 +1629,12 @@ with tabs[3]:
                         fig2 = go.Figure(go.Heatmap(z=cm, x=cnames, y=cnames, colorscale='Blues',
                                                    text=cm, texttemplate='%{text}', textfont=dict(size=16)))
                         fig2.update_layout(**plotly_dark_layout(height=380, xaxis_title="Predicted", yaxis_title="Actual"))
-                        st.plotly_chart(fig2, use_container_width=True)
+                        st.plotly_chart(fig2, width='stretch')
                     with c2:
                         st.markdown("### 📋 Classification Report")
                         tnames = t_enc.classes_ if t_enc else [str(i) for i in np.unique(y)]
                         rep = classification_report(best_info['y_test'], best_info['y_pred'], target_names=tnames, output_dict=True)
-                        st.dataframe(pd.DataFrame(rep).T.round(3), use_container_width=True, height=380)
+                        st.dataframe(pd.DataFrame(rep).T.round(3), width='stretch', height=380)
                 else:
                     st.markdown("### 📈 Actual vs Predicted")
                     pred_df = pd.DataFrame({'Actual': best_info['y_test'], 'Predicted': best_info['y_pred']})
@@ -1648,7 +1649,7 @@ with tabs[3]:
                     fig2.add_trace(go.Scatter(x=[mn, mx], y=[mn, mx], mode='lines', name='Perfect',
                                              line=dict(color='#43E97B', dash='dash', width=2)))
                     fig2.update_layout(**plotly_dark_layout(height=450))
-                    st.plotly_chart(fig2, use_container_width=True)
+                    st.plotly_chart(fig2, width='stretch')
 
                 if st.session_state.feature_importance:
                     st.markdown("### 🎯 Feature Importance")
@@ -1657,7 +1658,7 @@ with tabs[3]:
                     fig3 = px.bar(fi_df, x='Importance', y='Feature', orientation='h',
                                  color='Importance', color_continuous_scale='Viridis', title="Top Features")
                     fig3.update_layout(**plotly_dark_layout(height=450, coloraxis_showscale=False))
-                    st.plotly_chart(fig3, use_container_width=True)
+                    st.plotly_chart(fig3, width='stretch')
 
 
     # ═══════════════════════════════════════════════════════════
@@ -1703,7 +1704,7 @@ with tabs[4]:
                         uv = sorted(df[col].dropna().unique().tolist())
                         input_data[col] = st.selectbox(col, uv, key=f"inp_{col}")
 
-            if st.button("🔮 Predict", key="pred_single", use_container_width=True, type="primary"):
+            if st.button("🔮 Predict", key="pred_single", width='stretch', type="primary"):
                 try:
                     inp_df = pd.DataFrame([input_data])
                     for col in inp_df.columns:
@@ -1733,7 +1734,7 @@ with tabs[4]:
                                     color_continuous_scale='Viridis', text=pf['Probability'].apply(lambda x: f'{x:.2f}%'))
                         fig.update_traces(textposition='outside')
                         fig.update_layout(**plotly_dark_layout(height=380, coloraxis_showscale=False))
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(fig, width='stretch')
                     else:
                         st.markdown(f"""
                         <div class="pred-result">
@@ -1750,8 +1751,8 @@ with tabs[4]:
             if up_pred:
                 bdf = pd.read_csv(up_pred)
                 st.caption(f"Loaded: {len(bdf):,} rows")
-                st.dataframe(bdf.head(10), use_container_width=True)
-                if st.button("🔮 Predict All", use_container_width=True, type="primary", key="batch_btn"):
+                st.dataframe(bdf.head(10), width='stretch')
+                if st.button("🔮 Predict All", width='stretch', type="primary", key="batch_btn"):
                     missing = set(f_cols) - set(bdf.columns)
                     if missing:
                         st.error(f"Missing columns: {missing}")
@@ -1770,7 +1771,7 @@ with tabs[4]:
                                 pp = mdl.predict_proba(Xb)
                                 bdf['Confidence_%'] = (pp.max(axis=1) * 100).round(2)
                             st.success(f"✅ Predicted {len(bdf):,} samples!")
-                            st.dataframe(bdf, use_container_width=True)
+                            st.dataframe(bdf, width='stretch')
                             download_button(bdf, "csv", "📥 Download Predictions", "dl_pred")
                         except Exception as e:
                             st.error(f"Error: {e}")
@@ -1784,7 +1785,7 @@ with tabs[5]:
 
     with st.expander("🤖 Auto Feature Engineering", expanded=True):
         tgt_fe = st.selectbox("Target (for correlation-based selection)", ["None"] + df.columns.tolist(), key="fe_tgt")
-        if st.button("🧬 Generate Features", key="gen_fe", use_container_width=True):
+        if st.button("🧬 Generate Features", key="gen_fe", width='stretch'):
             dfc = df.copy()
             nc = dfc.select_dtypes(include=np.number).columns.tolist()
             tgt = tgt_fe if tgt_fe != "None" else None
@@ -1813,9 +1814,18 @@ with tabs[5]:
                 new_feats.extend(['row_mean', 'row_std', 'row_max', 'row_min'])
             st.success(f"✅ Generated {len(new_feats)} new features!")
             st.write(", ".join(new_feats))
-            if st.button("➕ Add to Dataset", key="add_fe", use_container_width=True):
-                push_history(dfc, f"🧬 Added {len(new_feats)} engineered features")
-                st.session_state.df = dfc
+            # Persist the generated frame in session_state: "Add to Dataset" is a button
+            # nested inside this "Generate Features" block, and on the rerun triggered by
+            # clicking it, gen_fe itself is no longer True — so dfc/new_feats would be
+            # undefined and the add would silently do nothing without this.
+            st.session_state['_pending_fe'] = (dfc, new_feats)
+
+        if '_pending_fe' in st.session_state:
+            _dfc, _new_feats = st.session_state['_pending_fe']
+            if st.button("➕ Add to Dataset", key="add_fe", width='stretch'):
+                push_history(_dfc, f"🧬 Added {len(_new_feats)} engineered features")
+                st.session_state.df = _dfc
+                del st.session_state['_pending_fe']
                 st.rerun()
 
     with st.expander("🎯 Clustering Analysis", expanded=True):
@@ -1831,7 +1841,7 @@ with tabs[5]:
                     eps_v = st.slider("DBSCAN eps", 0.1, 5.0, 0.5, key="dbscan_eps")
             with c3: use_pca_cl = st.checkbox("PCA reduction", True, key="pca_cl")
 
-            if cl_feats and st.button("🎯 Run Clustering", key="cl_btn", use_container_width=True):
+            if cl_feats and st.button("🎯 Run Clustering", key="cl_btn", width='stretch'):
                 try:
                     Xc = df[cl_feats].dropna()
                     Xs = StandardScaler().fit_transform(Xc)
@@ -1853,19 +1863,29 @@ with tabs[5]:
                     fig = px.scatter(x=Xs[:, 0], y=Xs[:, 1], color=cl.astype(str),
                                     title=f"{cl_meth} Clustering", labels={'x': 'PC1' if use_pca_cl else cl_feats[0], 'y': 'PC2' if use_pca_cl else cl_feats[1]})
                     fig.update_layout(**plotly_dark_layout(height=450))
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width='stretch')
 
                     cs = pd.DataFrame({'Cluster': np.unique(cl), 'Size': [(cl == c).sum() for c in np.unique(cl)],
                                        '%': [(cl == c).sum() / len(cl) * 100 for c in np.unique(cl)]}).round(1)
-                    st.dataframe(cs, use_container_width=True)
+                    st.dataframe(cs, width='stretch')
 
-                    if st.button("➕ Add Clusters to Dataset", key="add_cl", use_container_width=True):
-                        dfc = df.copy(); dfc['Cluster'] = -1
-                        dfc.loc[Xc.index, 'Cluster'] = cl
-                        push_history(dfc, f"🎯 {cl_meth} clustering")
-                        st.session_state.df = dfc; st.rerun()
+                    # Persist cluster labels: "Add Clusters" is nested inside this
+                    # "Run Clustering" block, so on the rerun triggered by clicking it,
+                    # cl_btn is no longer True and Xc/cl would be undefined — the add
+                    # would silently do nothing without stashing them first.
+                    st.session_state['_pending_cl'] = (Xc.index, cl, cl_meth)
                 except Exception as e:
                     st.error(f"Clustering error: {e}")
+
+            if '_pending_cl' in st.session_state:
+                _cl_index, _cl, _cl_meth = st.session_state['_pending_cl']
+                if st.button("➕ Add Clusters to Dataset", key="add_cl", width='stretch'):
+                    dfc = df.copy(); dfc['Cluster'] = -1
+                    dfc.loc[_cl_index, 'Cluster'] = _cl
+                    push_history(dfc, f"🎯 {_cl_meth} clustering")
+                    st.session_state.df = dfc
+                    del st.session_state['_pending_cl']
+                    st.rerun()
 
     with st.expander("📉 Dimensionality Reduction", expanded=False):
         nc = df.select_dtypes(include=np.number).columns.tolist()
@@ -1874,7 +1894,7 @@ with tabs[5]:
             with c1: dr_meth = st.selectbox("Method", ["PCA", "t-SNE", "ICA"], key="dr_meth")
             with c2: dr_n = st.slider("Components", 2, min(10, len(nc)), 3, key="dr_n")
 
-            if st.button("📉 Apply Reduction", key="dr_btn", use_container_width=True):
+            if st.button("📉 Apply Reduction", key="dr_btn", width='stretch'):
                 try:
                     Xd = df[nc].fillna(df[nc].median())
                     Xds = StandardScaler().fit_transform(Xd)
@@ -1885,7 +1905,7 @@ with tabs[5]:
                         fig2 = px.bar(x=[f'PC{i+1}' for i in range(dr_n)], y=ve*100,
                                      title="Explained Variance per Component", labels={'x': 'Component', 'y': 'Variance %'})
                         fig2.update_layout(**plotly_dark_layout(height=300))
-                        st.plotly_chart(fig2, use_container_width=True)
+                        st.plotly_chart(fig2, width='stretch')
                         st.metric("Total Variance Explained", f"{ve.sum()*100:.1f}%")
                     elif dr_meth == "t-SNE":
                         r = TSNE(n_components=min(dr_n, 3), random_state=42, perplexity=min(30, len(df)-1))
@@ -1898,7 +1918,7 @@ with tabs[5]:
                                     title=f"{dr_meth} — 2D Projection",
                                     labels={'x': f'{dr_meth} 1', 'y': f'{dr_meth} 2'})
                     fig.update_layout(**plotly_dark_layout(height=500))
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width='stretch')
                 except Exception as e:
                     st.error(f"Error: {e}")
 
@@ -1926,7 +1946,7 @@ with tabs[6]:
             else:
                 step_v = st.number_input("Step size", 1, 100, 5, key="step_v")
 
-        if st.button("🎲 Apply Sampling", key="samp_btn", use_container_width=True):
+        if st.button("🎲 Apply Sampling", key="samp_btn", width='stretch'):
             try:
                 if samp_t == "Random %": ds = df.sample(frac=samp_pct/100, random_state=42)
                 elif samp_t == "Fixed N": ds = df.sample(n=min(samp_n, len(df)), random_state=42)
@@ -1951,7 +1971,7 @@ with tabs[6]:
                 elif ft == "Between percentiles": fv = st.slider("Percentiles", 0, 100, (10, 90), key="flt_pct")
                 else: fv = st.number_input("Threshold", mn, mx, float(df[fc].median()), key="flt_val")
 
-            if st.button("🔍 Apply Filter", key="flt_btn", use_container_width=True):
+            if st.button("🔍 Apply Filter", key="flt_btn", width='stretch'):
                 if ft == "Range": dff = df[(df[fc] >= fv[0]) & (df[fc] <= fv[1])]
                 elif ft == "Greater than": dff = df[df[fc] > fv]
                 elif ft == "Less than": dff = df[df[fc] < fv]
@@ -1963,7 +1983,7 @@ with tabs[6]:
         else:
             uv = sorted(df[fc].dropna().unique().tolist())
             sv = st.multiselect("Select values", uv, default=uv[:min(5, len(uv))], key="flt_sel")
-            if sv and st.button("🔍 Apply Filter", key="flt_cat_btn", use_container_width=True):
+            if sv and st.button("🔍 Apply Filter", key="flt_cat_btn", width='stretch'):
                 dff = df[df[fc].isin(sv)]
                 push_history(dff, f"🔍 Filter {fc}")
                 st.session_state.df = dff; st.rerun()
@@ -1976,7 +1996,7 @@ with tabs[6]:
             with c1: jt = st.selectbox("Join type", ["inner", "left", "right", "outer"], key="jt")
             with c2: lk = st.selectbox("Left key", df.columns.tolist(), key="lk")
             with c3: rk = st.selectbox("Right key", df2.columns.tolist(), key="rk")
-            if st.button("🔗 Merge", key="mrg_btn", use_container_width=True):
+            if st.button("🔗 Merge", key="mrg_btn", width='stretch'):
                 try:
                     merged = pd.merge(df, df2, left_on=lk, right_on=rk, how=jt, suffixes=('', '_2'))
                     push_history(merged, f"🔗 {jt.title()} merge on {lk}")
@@ -1995,21 +2015,21 @@ with tabs[6]:
 
         if op_type == "Rename Column":
             new_name = st.text_input("New name", op_col or "", key="new_name")
-            if st.button("✅ Rename", use_container_width=True, key="rename_btn"):
+            if st.button("✅ Rename", width='stretch', key="rename_btn"):
                 dfc = df.rename(columns={op_col: new_name})
                 push_history(dfc, f"✏️ Renamed {op_col} → {new_name}")
                 st.session_state.df = dfc; st.rerun()
 
         elif op_type == "Drop Column":
             drop_multi = st.multiselect("Columns to drop", df.columns.tolist(), key="drop_cols")
-            if drop_multi and st.button("🗑️ Drop Columns", use_container_width=True, key="drop_btn"):
+            if drop_multi and st.button("🗑️ Drop Columns", width='stretch', key="drop_btn"):
                 dfc = df.drop(columns=drop_multi)
                 push_history(dfc, f"🗑️ Dropped {len(drop_multi)} columns")
                 st.session_state.df = dfc; st.rerun()
 
         elif op_type == "Change Dtype":
             new_type = st.selectbox("New type", ["int64", "float64", "str", "category", "datetime64[ns]"], key="new_type")
-            if st.button("🔄 Convert", use_container_width=True, key="conv_btn"):
+            if st.button("🔄 Convert", width='stretch', key="conv_btn"):
                 try:
                     dfc = df.copy()
                     dfc[op_col] = dfc[op_col].astype(new_type)
@@ -2022,7 +2042,7 @@ with tabs[6]:
             new_col = st.text_input("New column name", "new_feature", key="formula_name")
             formula = st.text_input("Formula (use column names as variables, e.g. Age * Income)", key="formula")
             st.caption("Available columns: " + ", ".join(df.columns.tolist()))
-            if formula and st.button("✅ Create Column", use_container_width=True, key="formula_btn"):
+            if formula and st.button("✅ Create Column", width='stretch', key="formula_btn"):
                 try:
                     dfc = df.copy()
                     local_vars = {c: dfc[c] for c in dfc.columns}
@@ -2071,7 +2091,7 @@ with tabs[7]:
             Max rows: <b>{cfg['max_rows'] or 'All'}</b>
         </div>""", unsafe_allow_html=True)
 
-    if st.button("🚀 Launch AutoML", use_container_width=True, type="primary", key="aml_btn"):
+    if st.button("🚀 Launch AutoML", width='stretch', type="primary", key="aml_btn"):
         avail = [c for c in df.columns if c != aml_tgt]
         with st.spinner("🤖 AutoML running..."):
             try:
@@ -2165,7 +2185,7 @@ with tabs[7]:
                             title=f"AutoML — {score_label} Comparison")
                 fig.update_traces(textposition='outside')
                 fig.update_layout(**plotly_dark_layout(height=420, coloraxis_showscale=False))
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
 
                 # Rich AutoML Comparison Table — relative min-max normalization
                 rdf2 = rdf.reset_index(drop=True)
@@ -2176,9 +2196,15 @@ with tabs[7]:
                 sc_min, sc_max = min(all_scores), max(all_scores)
                 sc_range = sc_max - sc_min if sc_max != sc_min else 1.0
 
-                # CV scores min/max
-                cv_vals_aml = [float(r['CV Score']) for _, r in rdf2.iterrows()
-                               if r.get('CV Score') is not None]
+                # CV scores min/max (CV Score is stored as "mean ± std" string — parse the mean)
+                def _parse_cv_mean(v):
+                    if v is None:
+                        return None
+                    try:
+                        return float(str(v).split('±')[0].strip())
+                    except (ValueError, TypeError):
+                        return None
+                cv_vals_aml = [m for r in rdf2['CV Score'] if (m := _parse_cv_mean(r)) is not None]
                 cv_min_aml = min(cv_vals_aml) if cv_vals_aml else 0
                 cv_max_aml = max(cv_vals_aml) if cv_vals_aml else 1
                 cv_range_aml = cv_max_aml - cv_min_aml if cv_max_aml != cv_min_aml else 1.0
@@ -2209,8 +2235,8 @@ with tabs[7]:
 
                     # CV Score cell
                     cv_val = row.get('CV Score', None)
-                    if cv_val is not None:
-                        cv_f = float(cv_val)
+                    cv_f = _parse_cv_mean(cv_val)
+                    if cv_f is not None:
                         cv_bar_w = max(4, int(((cv_f - cv_min_aml) / cv_range_aml) * 100))
                         cv_c = '#43E97B' if cv_f >= 0.80 else '#38F9D7' if cv_f >= 0.65 else '#F9AB00' if cv_f >= 0.50 else '#FF4757'
                         cv_html = f'''<div style="display:flex;flex-direction:column;gap:4px;align-items:center">
@@ -2281,13 +2307,16 @@ with tabs[7]:
                     fig2 = px.bar(fi_df, x='Importance', y='Feature', orientation='h',
                                  color='Importance', color_continuous_scale='Viridis', title="Top Features")
                     fig2.update_layout(**plotly_dark_layout(height=420, coloraxis_showscale=False))
-                    st.plotly_chart(fig2, use_container_width=True)
+                    st.plotly_chart(fig2, width='stretch')
 
-                # Save
+                # Save — always predict fresh with the actual best model so the saved
+                # predictions/confusion-matrix/etc. genuinely correspond to best_obj,
+                # instead of reusing a leftover prediction from whichever model trained last.
+                best_y_pred = best_obj.predict(Xte_s)
                 st.session_state.trained_models[f"AutoML_{best_name}"] = {
                     'model': best_obj, 'features': sel_f, 'target': aml_tgt,
                     'type': ptype, 'encoders': enc, 't_enc': t_enc,
-                    'X_test': Xte_s, 'y_test': y_te, 'y_pred': yp_ens if '🎯' in best_name else yp
+                    'X_test': Xte_s, 'y_test': y_te, 'y_pred': best_y_pred
                 }
                 st.success("✅ AutoML complete! Best model saved to Predict tab.")
 
@@ -2325,7 +2354,7 @@ with tabs[8]:
         with c2: grp_col = st.selectbox("Group Column", cc + [c for c in nc if df[c].nunique() <= 10], key="tt_grp")
         with c3: alpha = st.slider("Significance Level (α)", 0.01, 0.10, 0.05, 0.01, key="tt_alpha")
 
-        if st.button("▶ Run Test", use_container_width=True, key="tt_run"):
+        if st.button("▶ Run Test", width='stretch', key="tt_run"):
             try:
                 groups = df.groupby(grp_col)[num_col].apply(lambda x: x.dropna().values)
                 if len(groups) < 2:
@@ -2356,7 +2385,7 @@ with tabs[8]:
                     for nm, g in groups.items():
                         fig.add_trace(go.Box(y=g, name=str(nm), boxpoints='outliers'))
                     fig.update_layout(**plotly_dark_layout(title=f"{num_col} by {grp_col}", height=380))
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width='stretch')
             except Exception as e:
                 st.error(f"Test error: {e}")
 
@@ -2365,7 +2394,7 @@ with tabs[8]:
         with c1: num_col = st.selectbox("Numeric Column", nc, key="anova_num")
         with c2: grp_col = st.selectbox("Group Column", cc + [c for c in nc if df[c].nunique() <= 10], key="anova_grp")
         with c3: alpha = st.slider("α", 0.01, 0.10, 0.05, 0.01, key="anova_alpha")
-        if st.button("▶ Run ANOVA", use_container_width=True, key="anova_run"):
+        if st.button("▶ Run ANOVA", width='stretch', key="anova_run"):
             try:
                 groups = [g.dropna().values for _, g in df.groupby(grp_col)[num_col]]
                 f_stat, p = f_oneway(*groups)
@@ -2379,7 +2408,7 @@ with tabs[8]:
                             f'</div><div style="font-size:15px;font-weight:600;color:{result_color}">{conclusion}</div></div>', unsafe_allow_html=True)
                 fig = px.violin(df, x=grp_col, y=num_col, box=True, color=grp_col)
                 fig.update_layout(**plotly_dark_layout(height=400))
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
             except Exception as e: st.error(f"Error: {e}")
 
     elif "Chi-Square" in test_type:
@@ -2387,7 +2416,7 @@ with tabs[8]:
         with c1: col1 = st.selectbox("Column 1", cc, key="chi_c1")
         with c2: col2 = st.selectbox("Column 2", cc, key="chi_c2")
         with c3: alpha = st.slider("α", 0.01, 0.10, 0.05, 0.01, key="chi_alpha")
-        if st.button("▶ Run Chi-Square", use_container_width=True, key="chi_run"):
+        if st.button("▶ Run Chi-Square", width='stretch', key="chi_run"):
             try:
                 ct = pd.crosstab(df[col1], df[col2])
                 chi2, p, dof, expected = chi2_contingency(ct)
@@ -2401,12 +2430,12 @@ with tabs[8]:
                             f'</div><div style="font-size:15px;font-weight:600;color:{result_color}">{conclusion}</div></div>', unsafe_allow_html=True)
                 fig = px.imshow(ct, text_auto=True, color_continuous_scale='Viridis', title="Contingency Table")
                 fig.update_layout(**plotly_dark_layout(height=400))
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
             except Exception as e: st.error(f"Error: {e}")
 
     elif "Shapiro" in test_type:
         col = st.selectbox("Select Column", nc, key="sw_col")
-        if st.button("▶ Run Shapiro-Wilk", use_container_width=True, key="sw_run"):
+        if st.button("▶ Run Shapiro-Wilk", width='stretch', key="sw_run"):
             try:
                 data = df[col].dropna()
                 if len(data) > 5000: data = data.sample(5000, random_state=42)
@@ -2423,7 +2452,7 @@ with tabs[8]:
                 with c1:
                     fig = px.histogram(data, title=f"{col} Distribution", color_discrete_sequence=['#6C63FF'])
                     fig.update_layout(**plotly_dark_layout(height=350))
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width='stretch')
                 with c2:
                     from scipy.stats import probplot
                     qq = probplot(data)
@@ -2431,7 +2460,7 @@ with tabs[8]:
                     fig2.add_trace(go.Scatter(x=qq[0][0], y=qq[0][1], mode='markers', marker=dict(color='#6C63FF', size=4)))
                     fig2.add_trace(go.Scatter(x=qq[0][0], y=qq[1][0]*np.array(qq[0][0])+qq[1][1], mode='lines', line=dict(color='#43E97B', width=2), name='Normal line'))
                     fig2.update_layout(**plotly_dark_layout(title="Q-Q Plot", height=350))
-                    st.plotly_chart(fig2, use_container_width=True)
+                    st.plotly_chart(fig2, width='stretch')
             except Exception as e: st.error(f"Error: {e}")
 
     elif "Correlation" in test_type:
@@ -2447,7 +2476,7 @@ with tabs[8]:
             fig = px.imshow(corr.round(3), text_auto=True, color_continuous_scale='RdBu_r',
                            zmin=-1, zmax=1, title="Correlation Matrix (with p-values)")
             fig.update_layout(**plotly_dark_layout(height=500))
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
             sig_pairs = []
             for i in range(len(sel_cols)):
                 for j in range(i+1, len(sel_cols)):
@@ -2481,7 +2510,7 @@ with tabs[9]:
                                  placeholder="SELECT * FROM df WHERE column > 100 LIMIT 50")
         c1, c2 = st.columns([3,1])
         with c1:
-            run_sql = st.button("▶ Execute Query", use_container_width=True, type="primary", key="sql_run")
+            run_sql = st.button("▶ Execute Query", width='stretch', type="primary", key="sql_run")
         with c2:
             save_result = st.checkbox("Save result as new dataset", key="sql_save")
 
@@ -2490,10 +2519,10 @@ with tabs[9]:
                 with st.spinner("Running query..."):
                     result = pdsql.sqldf(sql_query, {'df': df})
                 st.markdown(f'<div class="alert-success">✅ Query returned <b>{len(result):,} rows</b> × <b>{len(result.columns)} columns</b></div>', unsafe_allow_html=True)
-                st.dataframe(result, use_container_width=True, height=400)
+                st.dataframe(result, width='stretch', height=400)
 
                 if save_result:
-                    push_history(result, f"🗄️ SQL Query result")
+                    push_history(result, "🗄️ SQL Query result")
                     st.session_state.df = result
                     st.success("✅ Result saved as current dataset!")
                     st.rerun()
@@ -2528,7 +2557,7 @@ with tabs[10]:
         sel_model_name = st.selectbox("🤖 Select Model to Explain", model_names, key="shap_model")
         model_info = st.session_state.trained_models[sel_model_name]
 
-        if st.button("🧠 Generate SHAP Explanation", use_container_width=True, type="primary", key="shap_run"):
+        if st.button("🧠 Generate SHAP Explanation", width='stretch', type="primary", key="shap_run"):
             try:
                 with st.spinner("Computing SHAP values... (may take 30-60 seconds)"):
                     mdl = model_info['model']
@@ -2584,7 +2613,7 @@ with tabs[10]:
                             color='SHAP Importance', color_continuous_scale='Viridis',
                             title="Mean |SHAP| — Global Feature Importance")
                 fig.update_layout(**plotly_dark_layout(height=500, coloraxis_showscale=False))
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
 
             with shap_tab2:
                 max_idx = min(99, len(X_test) - 1)
@@ -2603,9 +2632,9 @@ with tabs[10]:
                 fig2 = go.Figure(go.Bar(x=sample_df['SHAP Value'], y=sample_df['Feature'],
                                        orientation='h', marker_color=colors))
                 fig2.update_layout(**plotly_dark_layout(title=f"Sample #{sample_idx} — Feature Contributions", height=500))
-                st.plotly_chart(fig2, use_container_width=True)
+                st.plotly_chart(fig2, width='stretch')
                 st.dataframe(sample_df[['Feature', 'Feature Value', 'SHAP Value', 'Direction']].reset_index(drop=True),
-                            use_container_width=True, hide_index=True)
+                            width='stretch', hide_index=True)
 
             with shap_tab3:
                 top_n = min(10, len(features))
@@ -2617,7 +2646,7 @@ with tabs[10]:
                                 color_continuous_scale='RdBu_r', title="SHAP Values Heatmap (samples × features)",
                                 labels={'x': 'Sample Index', 'y': 'Feature', 'color': 'SHAP'})
                 fig3.update_layout(**plotly_dark_layout(height=500))
-                st.plotly_chart(fig3, use_container_width=True)
+                st.plotly_chart(fig3, width='stretch')
 
 
 # ═══════════════════════════════════════════════════════════
@@ -2639,7 +2668,7 @@ with tabs[11]:
                                   placeholder="gsk_...", key="api_key_field")
         c1, c2 = st.columns(2)
         with c1:
-            if st.button("💾 Save Key", use_container_width=True, key="save_key_btn"):
+            if st.button("💾 Save Key", width='stretch', key="save_key_btn"):
                 if key_input and len(key_input) > 10:
                     st.session_state['ai_api_key'] = key_input
                     st.success("✅ Key saved!")
@@ -2647,7 +2676,7 @@ with tabs[11]:
                 else:
                     st.error("❌ Valid key enter karo")
         with c2:
-            if st.button("🗑️ Clear Key", use_container_width=True, key="clear_key_btn"):
+            if st.button("🗑️ Clear Key", width='stretch', key="clear_key_btn"):
                 st.session_state['ai_api_key'] = ''
                 st.rerun()
 
@@ -2697,7 +2726,7 @@ with tabs[11]:
         ]
         for i, qp in enumerate(quick_prompts):
             with qcols[i % 3]:
-                if st.button(qp[:36] + ("…" if len(qp) > 36 else ""), key=f"qp_{i}", use_container_width=True):
+                if st.button(qp[:36] + ("…" if len(qp) > 36 else ""), key=f"qp_{i}", width='stretch'):
                     st.session_state['ai_prefill'] = qp
 
         # ── Chat history ──
@@ -2725,9 +2754,9 @@ with tabs[11]:
                                   placeholder="e.g. What patterns exist? Which model is best?",
                                   key="ai_chat_input")
         c1, c2, c3 = st.columns([4, 1, 1])
-        with c1: send_btn   = st.button("📤 Send", use_container_width=True, type="primary", key="ai_send")
-        with c2: clear_btn  = st.button("🗑️ Clear", use_container_width=True, key="ai_clear")
-        with c3: export_btn = st.button("📥 Export", use_container_width=True, key="ai_export")
+        with c1: send_btn   = st.button("📤 Send", width='stretch', type="primary", key="ai_send")
+        with c2: clear_btn  = st.button("🗑️ Clear", width='stretch', key="ai_clear")
+        with c3: export_btn = st.button("📥 Export", width='stretch', key="ai_export")
 
         if clear_btn:
             st.session_state.chat_history = []
@@ -2821,9 +2850,9 @@ with tabs[12]:
             df.to_parquet(pb, index=False)
             st.download_button("📦 Parquet", pb.getvalue(),
                               f"data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.parquet",
-                              "application/octet-stream", key="exp_parquet", use_container_width=True)
+                              "application/octet-stream", key="exp_parquet", width='stretch')
         except:
-            st.button("📦 Parquet (unavailable)", disabled=True, use_container_width=True)
+            st.button("📦 Parquet (unavailable)", disabled=True, width='stretch')
 
     # ── Column filter for export ──
     st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
@@ -2870,7 +2899,7 @@ with tabs[12]:
                 with c2: st.metric("Cols", f"{h['shape'][1]:,}")
                 with c3: st.metric("Memory", f"{h['df'].memory_usage(deep=True).sum()/1024**2:.1f} MB")
                 with c4:
-                    if st.button("↩️ Restore", key=f"rst_{i}", use_container_width=True):
+                    if st.button("↩️ Restore", key=f"rst_{i}", width='stretch'):
                         st.session_state.df = h['df'].copy()
                         st.success("✅ Restored!")
                         st.rerun()
